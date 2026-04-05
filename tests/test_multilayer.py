@@ -108,3 +108,71 @@ class TestMultiLayerGradient:
                 grad[idx], grad_fd, rtol=1e-3, atol=1e-8,
                 err_msg=f"Gradient mismatch at index {idx}"
             )
+
+    def test_hessian_trilayer(self):
+        """Verify Hessian via finite differences of gradient for a 3-layer system."""
+        from moire_metrology.discretization import PeriodicDiscretization
+        from moire_metrology.energy import RelaxationEnergy
+        from moire_metrology.gsfe import GSFESurface
+        from moire_metrology.lattice import HexagonalLattice, MoireGeometry
+        from moire_metrology.mesh import MoireMesh
+
+        lat = HexagonalLattice(alpha=0.247)
+        geom = MoireGeometry(lat, theta_twist=5.0)
+        mesh = MoireMesh.generate(geom, pixel_size=2.0)
+        disc = PeriodicDiscretization(mesh, geom)
+        conv = disc.build_conversion_matrices(nlayer1=2, nlayer2=1)
+        gsfe = GSFESurface(TBLG.gsfe_coeffs)
+
+        energy = RelaxationEnergy(
+            disc=disc, conv=conv, geometry=geom,
+            gsfe_interface=gsfe,
+            K1=TBLG.bulk_modulus, G1=TBLG.shear_modulus,
+            K2=TBLG.bulk_modulus, G2=TBLG.shear_modulus,
+            nlayer1=2, nlayer2=1,
+            gsfe_flake1=gsfe,
+            I1_vect=np.array([1 / 3]),
+            J1_vect=np.array([1 / 3]),
+        )
+
+        np.random.seed(123)
+        U = np.random.randn(conv.n_sol) * 0.001
+
+        # Test hessp against finite differences of gradient
+        h = 1e-6
+        n_check = 15
+        indices = np.random.choice(len(U), n_check, replace=False)
+
+        for idx in indices:
+            # Finite difference of gradient: H[:,idx] ~ (grad(U+h*e_i) - grad(U-h*e_i)) / 2h
+            U_plus = U.copy()
+            U_plus[idx] += h
+            _, grad_plus = energy(U_plus)
+
+            U_minus = U.copy()
+            U_minus[idx] -= h
+            _, grad_minus = energy(U_minus)
+
+            hess_col_fd = (grad_plus - grad_minus) / (2 * h)
+
+            # hessp should give the same column when applied to e_i
+            e_i = np.zeros_like(U)
+            e_i[idx] = 1.0
+            hess_col_hessp = energy.hessp(U, e_i)
+
+            np.testing.assert_allclose(
+                hess_col_hessp, hess_col_fd, rtol=1e-3, atol=1e-6,
+                err_msg=f"Hessp mismatch at column {idx}"
+            )
+
+        # Also verify full sparse Hessian against hessp
+        H = energy.hessian(U)
+        for idx in indices[:5]:
+            e_i = np.zeros_like(U)
+            e_i[idx] = 1.0
+            col_sparse = H @ e_i
+            col_hessp = energy.hessp(U, e_i)
+            np.testing.assert_allclose(
+                col_sparse, col_hessp, rtol=1e-10, atol=1e-12,
+                err_msg=f"Hessian vs hessp mismatch at column {idx}"
+            )
