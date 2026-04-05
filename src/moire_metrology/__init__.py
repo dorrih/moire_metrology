@@ -21,7 +21,8 @@ from .materials import (
     HBN_AAP,
     Material,
 )
-from .mesh import MoireMesh
+from .mesh import MoireMesh, generate_finite_mesh
+from .pinning import PinningMap, InteractivePinner
 from .solver import RelaxationSolver, SolverConfig
 
 __version__ = "0.1.0"
@@ -36,6 +37,9 @@ __all__ = [
     "HBN_AA",
     "HBN_AAP",
     "MoireMesh",
+    "generate_finite_mesh",
+    "PinningMap",
+    "InteractivePinner",
     "RelaxationSolver",
     "SolverConfig",
 ]

@@ -169,3 +169,77 @@ def _structured_triangulation(ns: int, nt: int) -> np.ndarray:
             triangles.append([v10, v11, v01])
 
     return np.array(triangles, dtype=np.int64)
+
+
+def generate_finite_mesh(
+    geometry: MoireGeometry,
+    n_cells: int = 3,
+    pixel_size: float = 0.5,
+) -> MoireMesh:
+    """Generate a non-periodic mesh covering multiple moire unit cells.
+
+    Creates a hexagonal domain of n_cells moire periods across, with
+    no periodic wrapping. Suitable for constrained relaxation.
+
+    Parameters
+    ----------
+    geometry : MoireGeometry
+        Moire geometry.
+    n_cells : int
+        Number of moire unit cells across the domain diameter.
+    pixel_size : float
+        Target element size in nm.
+
+    Returns
+    -------
+    MoireMesh
+        Non-periodic mesh (boundary triangles do NOT wrap).
+    """
+    V1 = geometry.V1
+    V2 = geometry.V2
+
+    # Generate points on a grid covering n_cells x n_cells parallelograms
+    ns = max(4, int(np.ceil(n_cells * np.linalg.norm(V1) / pixel_size)))
+    nt = max(4, int(np.ceil(n_cells * np.linalg.norm(V2) / pixel_size)))
+
+    s_vals = np.linspace(0, n_cells, ns + 1)
+    t_vals = np.linspace(0, n_cells, nt + 1)
+
+    ss, tt = np.meshgrid(s_vals, t_vals, indexing="ij")
+    ss_flat = ss.ravel()
+    tt_flat = tt.ravel()
+
+    x = ss_flat * V1[0] + tt_flat * V2[0]
+    y = ss_flat * V1[1] + tt_flat * V2[1]
+    points = np.array([x, y])
+
+    # Non-periodic triangulation (no wrapping)
+    triangles = _structured_triangulation_open(ns + 1, nt + 1)
+
+    return MoireMesh(
+        points=points,
+        triangles=triangles,
+        V1=n_cells * V1,
+        V2=n_cells * V2,
+        ns=ns + 1,
+        nt=nt + 1,
+        n_scale=n_cells,
+    )
+
+
+def _structured_triangulation_open(ns: int, nt: int) -> np.ndarray:
+    """Build triangulation for a NON-periodic ns x nt grid.
+
+    Unlike the periodic version, indices do NOT wrap.
+    """
+    triangles = []
+    for i in range(ns - 1):
+        for j in range(nt - 1):
+            v00 = i * nt + j
+            v10 = (i + 1) * nt + j
+            v01 = i * nt + (j + 1)
+            v11 = (i + 1) * nt + (j + 1)
+            triangles.append([v00, v10, v01])
+            triangles.append([v10, v11, v01])
+
+    return np.array(triangles, dtype=np.int64)

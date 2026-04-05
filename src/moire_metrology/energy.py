@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import sparse
 
-from .discretization import ConversionMatrices, PeriodicDiscretization
+from .discretization import ConversionMatrices, PeriodicDiscretization, PinnedConstraints
 from .gsfe import GSFESurface
 from .lattice import MoireGeometry
 
@@ -64,9 +64,11 @@ class RelaxationEnergy:
         J1_vect: np.ndarray | None = None,
         I2_vect: np.ndarray | None = None,
         J2_vect: np.ndarray | None = None,
+        constraints: PinnedConstraints | None = None,
     ):
         self.disc = disc
         self.conv = conv
+        self.constraints = constraints
         self.geometry = geometry
         self.K1 = K1
         self.G1 = G1
@@ -226,13 +228,24 @@ class RelaxationEnergy:
 
     # --- Energy, gradient, Hessian ---
 
+    def _to_full(self, U: np.ndarray) -> np.ndarray:
+        """Expand U from free-DOF space to full space if constrained."""
+        if self.constraints is not None:
+            return self.constraints.expand(U)
+        return U
+
     def __call__(self, U: np.ndarray) -> tuple[float, np.ndarray]:
-        """Compute total energy and gradient."""
+        """Compute total energy and gradient.
+
+        If constraints are set, U is in free-DOF space. The returned gradient
+        is also in free-DOF space.
+        """
         self.eval_count += 1
+        U_full = self._to_full(U)
 
         # Elastic energy (quadratic: E = 0.5 * U^T H U, grad = H U)
-        HU = self._H_elastic @ U
-        E_total = 0.5 * U.dot(HU)
+        HU = self._H_elastic @ U_full
+        E_total = 0.5 * U_full.dot(HU)
         grad = HU.copy()
 
         # GSFE energy for all pairs
@@ -240,7 +253,7 @@ class RelaxationEnergy:
         w_v = self._area_v_norm
 
         for pair in self._gsfe_pairs:
-            v, w = self._pair_phases(pair, U)
+            v, w = self._pair_phases(pair, U_full)
             V = pair.gsfe(v, w)
             V_min = pair.gsfe.minimum_value
             E_total += float(np.sum((V - V_min) * w_v))
@@ -251,25 +264,38 @@ class RelaxationEnergy:
             fy = -(Mu[0, 1] * dVdv + Mu[1, 1] * dVdw) * w_v
             self._scatter_pair_gradient(pair, grad, fx, fy)
 
+        if self.constraints is not None:
+            grad = self.constraints.project(grad)
+
         return E_total, grad
 
     def hessp(self, U: np.ndarray, p: np.ndarray) -> np.ndarray:
-        """Compute Hessian-vector product H(U) @ p."""
+        """Compute Hessian-vector product H(U) @ p.
+
+        If constrained, U and p are in free-DOF space; result is also free-DOF space.
+        """
         Nv = self.Nv
         Mu = self._Mu1
         w_v = self._area_v_norm
 
-        result = self._H_elastic @ p
+        U_full = self._to_full(U)
+
+        if self.constraints is not None:
+            p_full = self.constraints.expand_zeros(p)  # zeros at pinned for perturbation
+        else:
+            p_full = p
+
+        result = self._H_elastic @ p_full
 
         for pair in self._gsfe_pairs:
-            v, w = self._pair_phases(pair, U)
+            v, w = self._pair_phases(pair, U_full)
             d2v2 = pair.gsfe.d2v2(v, w)
             d2w2 = pair.gsfe.d2w2(v, w)
             d2vw = pair.gsfe.d2vw(v, w)
 
-            # Extract perturbation for this pair
-            dpx = p[pair.layer_a_ox:pair.layer_a_ox + Nv] - p[pair.layer_b_ox:pair.layer_b_ox + Nv]
-            dpy = p[pair.layer_a_oy:pair.layer_a_oy + Nv] - p[pair.layer_b_oy:pair.layer_b_oy + Nv]
+            # Extract perturbation for this pair (use full-space p)
+            dpx = p_full[pair.layer_a_ox:pair.layer_a_ox + Nv] - p_full[pair.layer_b_ox:pair.layer_b_ox + Nv]
+            dpy = p_full[pair.layer_a_oy:pair.layer_a_oy + Nv] - p_full[pair.layer_b_oy:pair.layer_b_oy + Nv]
 
             dp_v = -(Mu[0, 0] * dpx + Mu[0, 1] * dpy)
             dp_w = -(Mu[1, 0] * dpx + Mu[1, 1] * dpy)
@@ -281,10 +307,21 @@ class RelaxationEnergy:
             hfy = -(Mu[0, 1] * hv + Mu[1, 1] * hw) * w_v
             self._scatter_pair_gradient(pair, result, hfx, hfy)
 
+        if self.constraints is not None:
+            result = self.constraints.project(result)
+
         return result
 
     def hessian(self, U: np.ndarray) -> sparse.csr_matrix:
-        """Compute the full Hessian as a sparse matrix."""
+        """Compute the Hessian. If constrained, returns the free x free subblock."""
+        U_full = self._to_full(U)
+        H_full = self._hessian_full(U_full)
+        if self.constraints is not None:
+            return self.constraints.project_hessian(H_full)
+        return H_full
+
+    def _hessian_full(self, U_full: np.ndarray) -> sparse.csr_matrix:
+        """Compute the full-space Hessian."""
         Nv = self.Nv
         n_sol = self.conv.n_sol
         Mu = self._Mu1
@@ -294,7 +331,7 @@ class RelaxationEnergy:
         all_rows, all_cols, all_data = [], [], []
 
         for pair in self._gsfe_pairs:
-            v, w = self._pair_phases(pair, U)
+            v, w = self._pair_phases(pair, U_full)
             d2v2 = pair.gsfe.d2v2(v, w)
             d2w2 = pair.gsfe.d2w2(v, w)
             d2vw = pair.gsfe.d2vw(v, w)

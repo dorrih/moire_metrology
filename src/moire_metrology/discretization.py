@@ -4,8 +4,8 @@ Provides differentiation matrices, area weights, and conversion matrices
 for mapping the flat solution vector to per-layer displacement fields.
 
 For a periodic mesh, all vertices are independent (periodicity is encoded
-in the triangulation via wrapping indices). For free-BC meshes, boundary
-handling would need to be added separately.
+in the triangulation via wrapping indices). For constrained problems,
+`PinnedConstraints` tracks which DOFs are free vs pinned.
 """
 
 from __future__ import annotations
@@ -17,6 +17,57 @@ from scipy import sparse
 
 from .lattice import MoireGeometry
 from .mesh import MoireMesh
+
+
+@dataclass
+class PinnedConstraints:
+    """Tracks which DOFs are free vs pinned in a constrained relaxation.
+
+    The full solution vector has length `n_full`. The optimizer only sees
+    the `n_free` free DOFs. This class handles the mapping between the two.
+
+    Attributes
+    ----------
+    free_indices : ndarray of int
+        Indices into the full U vector that are free (optimized).
+    pinned_indices : ndarray of int
+        Indices into the full U vector that are pinned (fixed).
+    pinned_values : ndarray
+        Displacement values at pinned DOFs.
+    n_free : int
+    n_full : int
+    """
+
+    free_indices: np.ndarray
+    pinned_indices: np.ndarray
+    pinned_values: np.ndarray
+    n_free: int
+    n_full: int
+
+    def expand(self, U_free: np.ndarray) -> np.ndarray:
+        """Map free DOFs to full vector, inserting pinned values."""
+        U_full = np.zeros(self.n_full)
+        U_full[self.free_indices] = U_free
+        U_full[self.pinned_indices] = self.pinned_values
+        return U_full
+
+    def expand_zeros(self, v_free: np.ndarray) -> np.ndarray:
+        """Map free DOFs to full vector with zeros at pinned positions.
+
+        Used for perturbation directions (Hessian-vector products) where
+        pinned DOFs should not contribute.
+        """
+        v_full = np.zeros(self.n_full)
+        v_full[self.free_indices] = v_free
+        return v_full
+
+    def project(self, vec_full: np.ndarray) -> np.ndarray:
+        """Extract free-DOF entries from a full-length vector (e.g., gradient)."""
+        return vec_full[self.free_indices]
+
+    def project_hessian(self, H_full: sparse.spmatrix) -> sparse.csr_matrix:
+        """Extract the free x free subblock of a sparse Hessian."""
+        return H_full[self.free_indices][:, self.free_indices].tocsr()
 
 
 @dataclass

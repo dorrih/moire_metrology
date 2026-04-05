@@ -168,6 +168,7 @@ class RelaxationSolver:
         delta: float | None = None,
         theta0: float = 0.0,
         initial_solution: np.ndarray | None = None,
+        constraints: "PinnedConstraints | None" = None,
     ) -> RelaxationResult:
         """Solve the relaxation problem.
 
@@ -185,6 +186,9 @@ class RelaxationSolver:
             Lattice orientation angle in degrees.
         initial_solution : ndarray or None
             Initial guess. If None, starts from zero.
+        constraints : PinnedConstraints or None
+            If set, pins certain DOFs to fixed displacements while
+            optimizing the rest. Build via PinningMap.build_constraints().
         """
         cfg = self.config
 
@@ -232,12 +236,22 @@ class RelaxationSolver:
             gsfe_flake1=gsfe_flake1, gsfe_flake2=gsfe_flake2,
             I1_vect=I1_vect, J1_vect=J1_vect,
             I2_vect=I2_vect, J2_vect=J2_vect,
+            constraints=constraints,
         )
 
         if cfg.display:
             print(f"  Done in {perf_counter() - t_start:.1f}s")
+            if constraints is not None:
+                print(f"  Constraints: {constraints.n_free} free / "
+                      f"{len(constraints.pinned_indices)} pinned DOFs")
 
-        U0 = initial_solution if initial_solution is not None else np.zeros(conv.n_sol)
+        # Initial guess — in free-DOF space if constrained
+        if initial_solution is not None:
+            U0 = initial_solution
+        elif constraints is not None:
+            U0 = np.zeros(constraints.n_free)
+        else:
+            U0 = np.zeros(conv.n_sol)
         E0, _ = energy_func(U0)
         if cfg.display:
             print(f"Unrelaxed energy: {E0:.2f} meV (total for domain)")
@@ -274,8 +288,12 @@ class RelaxationSolver:
             print(f"  Final energy: {result.fun:.4f} meV")
             print(f"  Iterations: {result.nit}, func evals: {result.nfev}, time: {elapsed:.1f}s")
 
-        # Extract results
-        U_opt = result.x
+        # Extract results — expand to full DOF space if constrained
+        U_opt_raw = result.x
+        if constraints is not None:
+            U_opt = constraints.expand(U_opt_raw)
+        else:
+            U_opt = U_opt_raw
         Nv = mesh.n_vertices
 
         ux1 = np.zeros((nlayer1, Nv))
