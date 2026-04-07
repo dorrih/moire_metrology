@@ -30,7 +30,6 @@ rebuild the cache from scratch.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
@@ -38,7 +37,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from moire_metrology import GRAPHENE, RelaxationSolver, SolverConfig
-from moire_metrology.discretization import PeriodicDiscretization
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 from moire_metrology.mesh import MoireMesh
 from moire_metrology.result import RelaxationResult
