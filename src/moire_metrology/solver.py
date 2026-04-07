@@ -73,6 +73,24 @@ class SolverConfig:
     dt0 : float or None
         Initial pseudo-time step for the 'pseudo_dynamics' solver. If None,
         chosen automatically as ~1/(K1+G1) so that dt0·|H| ~ 1.
+    linear_solver : str
+        Linear-system solver used inside each pseudo_dynamics step:
+        - 'direct' (default): build the sparse Hessian explicitly and call
+          spsolve. Per-iteration cost is the LU factorization, which scales
+          like O(n_sol^1.5) on 2D meshes. Best for small/moderate problems.
+        - 'iterative': matrix-free preconditioned MINRES, using only
+          Hessian-vector products via energy_func.hessp(U, p) and a Jacobi
+          preconditioner from the diagonal of the constant elastic Hessian.
+          Much faster per iteration on large problems (n_sol >> 10^4).
+          Uses MINRES (not CG) so it stays robust when β·dt·H is symmetric
+          but indefinite.
+    linear_solver_tol : float
+        Relative-residual tolerance for the iterative linear solver. Only
+        used when linear_solver='iterative'. Default 1e-6.
+    linear_solver_maxiter : int
+        Max iterations for the iterative linear solver per pseudo_dynamics
+        step. Default 200. The outer pseudo_dynamics loop will rebuild the
+        operator and try again with a smaller dt if MINRES fails to converge.
     """
 
     method: str = "newton"
@@ -84,6 +102,9 @@ class SolverConfig:
     min_mesh_points: int = 100
     beta: float = 1.0
     dt0: float | None = None
+    linear_solver: str = "direct"
+    linear_solver_tol: float = 1e-6
+    linear_solver_maxiter: int = 200
 
 
 def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
@@ -191,7 +212,10 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
 
 def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                            max_iter: int, gtol: float, beta: float,
-                           dt0: float | None, display: bool) -> dict:
+                           dt0: float | None, display: bool,
+                           linear_solver: str = "direct",
+                           linear_solver_tol: float = 1e-6,
+                           linear_solver_maxiter: int = 200) -> dict:
     """Implicit theta-method pseudo-time-stepping relaxation solver.
 
     Solves the gradient flow ODE  M·dU/dt = -∇E(U)  by a generalized
@@ -222,13 +246,16 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
       - The energy-monitored rewind avoids the LM stall mode where the
         damping pins high and Newton can't escape a saddle/plateau.
 
-    Per-iteration cost: this solver rebuilds the sparse Hessian and runs
-    a sparse direct LU factorization at every step, the same as Newton.
-    For large meshes / many layers (n_sol >> 10^4) this becomes much
-    slower per iteration than L-BFGS-B (which only does Hessian-vector
-    products). Use 'pseudo_dynamics' specifically when you need the
-    extra robustness on stiff multi-layer / low-twist cases where Newton
-    stalls; for routine bilayer relaxation Newton is usually faster.
+    Linear-solve modes (selected via the `linear_solver` argument):
+      - 'direct' (default): build the full sparse Hessian and call spsolve.
+        Per-iteration cost is the LU factorization, scaling like O(n^1.5)
+        on 2D meshes. Best for small/moderate problems.
+      - 'iterative': matrix-free preconditioned MINRES, using only
+        Hessian-vector products via energy_func.hessp(U, p). The Jacobi
+        preconditioner is built once from the diagonal of the constant
+        elastic Hessian and reused at every step. MINRES (not CG) so the
+        method stays robust when β·dt·H is symmetric but indefinite.
+        Much faster than 'direct' on large problems (n_sol >> 10^4).
 
     This solver ports the algorithm of
     docs_internal/relaxation_code_2D_solver_periodic_ver6.m, simplified
@@ -236,6 +263,7 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     Amat0 = identity).
     """
     from scipy.sparse import eye as speye
+    from scipy.sparse.linalg import LinearOperator, minres
 
     U = U0.copy()
     E, grad = energy_func(U)
@@ -266,6 +294,30 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     else:
         dt = dt0
 
+    # ---- Iterative-solver bookkeeping ------------------------------
+    # The constant elastic Hessian gives us a free Jacobi preconditioner.
+    # When constraints are present, we need the diagonal in the free-DOF
+    # space, not the full DOF space. Cache it once.
+    H_elastic_diag_full = None
+    H_elastic_diag_free = None
+    if linear_solver == "iterative":
+        H_elastic_diag_full = np.asarray(
+            energy_func._H_elastic.diagonal()
+        ).ravel()
+        if energy_func.constraints is not None:
+            H_elastic_diag_free = H_elastic_diag_full[
+                energy_func.constraints.free_indices
+            ]
+        else:
+            H_elastic_diag_free = H_elastic_diag_full
+        # Sanity: positive (the elastic Hessian is PD on the free DOFs)
+        H_elastic_diag_free = np.maximum(H_elastic_diag_free, 0.0)
+    elif linear_solver != "direct":
+        raise ValueError(
+            f"Unknown linear_solver={linear_solver!r}; "
+            f"expected 'direct' or 'iterative'."
+        )
+
     # Convergence requires the gradient norm to be below tolerance for
     # this many consecutive accepted steps. Avoids early exit on noise.
     count_conv_required = 3
@@ -290,16 +342,52 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
         if converged(gnorm):
             break
 
-        # Build the implicit Hessian at the current iterate. The Hessian
-        # has elastic (constant) + GSFE (vertex-diagonal at U) parts.
-        H = energy_func.hessian(U)
-        A = M + (beta * dt) * H
         rhs = -dt * grad
 
-        # Sparse direct solve. The system is well-posed because M is
-        # positive definite even when H is indefinite or near-singular.
+        # Solve (M + β·dt·H(U_prev)) · ΔU = rhs
+        # The system is well-posed because M is positive definite even
+        # when H is indefinite or near-singular.
         try:
-            dU = spsolve(A, rhs)
+            if linear_solver == "direct":
+                # Build the implicit Hessian explicitly and call spsolve.
+                H = energy_func.hessian(U)
+                A = M + (beta * dt) * H
+                dU = spsolve(A, rhs)
+            else:
+                # Matrix-free MINRES against energy_func.hessp.
+                # Captures U and dt at the current step (rebound each iter).
+                _U_local = U
+                _coef = beta * dt
+
+                def _matvec(p):
+                    return p + _coef * energy_func.hessp(_U_local, p)
+
+                A_op = LinearOperator(
+                    (n_sol, n_sol), matvec=_matvec, dtype=np.float64,
+                )
+
+                # Jacobi preconditioner: (1 + β·dt·diag(H_elastic))^{-1}.
+                # Approximates the system diagonal cheaply; the GSFE
+                # contribution to the diagonal is small relative to the
+                # elastic contribution and is left out.
+                _precond = 1.0 / (1.0 + _coef * H_elastic_diag_free)
+                M_op = LinearOperator(
+                    (n_sol, n_sol),
+                    matvec=lambda p: _precond * p,
+                    dtype=np.float64,
+                )
+
+                dU, info = minres(
+                    A_op, rhs, M=M_op,
+                    rtol=linear_solver_tol,
+                    maxiter=linear_solver_maxiter,
+                )
+                if info < 0:
+                    # MINRES reports illegal input — treat as a numerical
+                    # breakdown and let the outer rejection logic shrink dt.
+                    raise RuntimeError(f"minres returned info={info}")
+                # info > 0 means did-not-converge; we still use dU as a
+                # best-effort step and let the energy check accept/reject.
         except Exception:
             # Numerical breakdown — shrink dt and retry.
             dt *= 0.5
@@ -516,6 +604,9 @@ class RelaxationSolver:
                 res = _pseudo_dynamics_solve(
                     energy_func, U0, cfg.max_iter, cfg.gtol,
                     beta=cfg.beta, dt0=cfg.dt0, display=cfg.display,
+                    linear_solver=cfg.linear_solver,
+                    linear_solver_tol=cfg.linear_solver_tol,
+                    linear_solver_maxiter=cfg.linear_solver_maxiter,
                 )
 
             class _Result:
