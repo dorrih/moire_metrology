@@ -163,12 +163,19 @@ class ConversionMatrices:
 
 
 class PeriodicDiscretization:
-    """FEM infrastructure for a periodic triangular mesh.
+    """FEM infrastructure for a triangular moire mesh.
+
+    Despite the name, this class handles BOTH periodic and finite (open)
+    meshes. The mesh's ``is_periodic`` flag controls whether the diff
+    matrix builder applies lattice-vector wrap corrections to relative
+    vertex positions: periodic meshes need them (the structured
+    triangulation contains wrap-around triangles whose vertices are
+    placed on opposite sides of the parallelogram), finite meshes don't.
 
     Parameters
     ----------
     mesh : MoireMesh
-        The triangular mesh (assumed periodic via wrapped triangulation).
+        The triangular mesh.
     geometry : MoireGeometry
         Moire geometry for computing stacking phases.
     """
@@ -204,24 +211,25 @@ class PeriodicDiscretization:
         # Signed area * 2
         det = (x2 - x1) * (y3 - y1) - (x3 - x1) * (y2 - y1)
 
-        # Handle wrapped triangles: some triangles span the periodic boundary
-        # and have vertices far apart. We need to use the correct relative
-        # positions by shifting wrapped vertices.
-        # For a structured periodic mesh, the triangulation wraps correctly,
-        # but the coordinates may jump. Fix this by computing relative coords.
-        V1 = self.mesh.V1
-        V2 = self.mesh.V2
-
-        # Recompute using relative vectors within each triangle
+        # Recompute using relative vectors within each triangle.
         dx12 = x2 - x1
         dy12 = y2 - y1
         dx13 = x3 - x1
         dy13 = y3 - y1
 
-        # Correct for periodic wrapping: if a relative displacement is larger
-        # than half the domain, shift by a lattice vector
-        dx12, dy12 = _periodic_shift(dx12, dy12, V1, V2)
-        dx13, dy13 = _periodic_shift(dx13, dy13, V1, V2)
+        # For a periodic mesh, the structured triangulation contains
+        # wrap-around triangles whose vertex coordinates jump across the
+        # parallelogram boundary; we shift relative vectors by integer
+        # lattice combinations of (V1, V2) so each triangle uses its
+        # correct local geometry. Finite (open) meshes don't have wrap
+        # triangles, so this correction must be skipped — applying it
+        # would silently corrupt edge triangles whose long-but-legitimate
+        # edges happen to exceed half the bounding box.
+        if self.mesh.is_periodic:
+            V1 = self.mesh.V1
+            V2 = self.mesh.V2
+            dx12, dy12 = _periodic_shift(dx12, dy12, V1, V2)
+            dx13, dy13 = _periodic_shift(dx13, dy13, V1, V2)
 
         det = dx12 * dy13 - dx13 * dy12
         inv_det = 1.0 / det
