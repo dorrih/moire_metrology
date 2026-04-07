@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from moire_metrology import GRAPHENE, SolverConfig
+from moire_metrology import SolverConfig
 from moire_metrology.materials import Material
 from moire_metrology.multilayer import LayerStack
 
@@ -28,6 +28,7 @@ class TestLayerStack:
         assert "2x TBLG" in desc
         assert stack.total_layers == 5
 
+    @pytest.mark.slow
     def test_bilayer(self):
         """Multi-layer with nlayer=1 each should match single-layer result."""
         stack = LayerStack(top=TBLG, n_top=1, bottom=TBLG, n_bottom=1, theta_twist=2.0)
@@ -35,6 +36,7 @@ class TestLayerStack:
         assert result.total_energy < result.unrelaxed_energy
         assert result.displacement_x1.shape == (1, result.mesh.n_vertices)
 
+    @pytest.mark.slow
     def test_trilayer(self):
         """3 layers total: 2 top + 1 bottom."""
         stack = LayerStack(top=TBLG, n_top=2, bottom=TBLG, n_bottom=1, theta_twist=2.0)
@@ -44,6 +46,7 @@ class TestLayerStack:
         assert result.displacement_x1.shape[0] == 2  # 2 top layers
         assert result.displacement_x2.shape[0] == 1  # 1 bottom layer
 
+    @pytest.mark.slow
     def test_more_layers_more_energy(self):
         """More layers should give more total energy (more unit cells)."""
         config = SolverConfig(method="L-BFGS-B", pixel_size=1.5, max_iter=100, gtol=1e-3, display=False)

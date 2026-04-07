@@ -145,7 +145,7 @@ class RelaxationResult:
             data,
             ax=ax,
             n_tile=n_tile,
-            title=f"Local twist angle (deg)",
+            title="Local twist angle (deg)",
             cmap="coolwarm",
             **kwargs,
         )

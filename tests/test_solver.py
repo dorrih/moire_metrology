@@ -7,6 +7,7 @@ from moire_metrology import RelaxationSolver, SolverConfig, GRAPHENE
 
 
 class TestSolverBasic:
+    @pytest.mark.slow
     def test_solve_tblg_2deg(self):
         """Solve TBLG at 2 degrees — energy should decrease from relaxation."""
         config = SolverConfig(
@@ -30,6 +31,7 @@ class TestSolverBasic:
         assert result.displacement_x1.shape == (1, Nv)
         assert result.displacement_y1.shape == (1, Nv)
 
+    @pytest.mark.slow
     def test_solve_zero_displacement_at_start(self):
         """At large twist angles, relaxation is small."""
         config = SolverConfig(
@@ -48,6 +50,7 @@ class TestSolverBasic:
         max_disp = np.max(np.abs(result.displacement_x1))
         assert max_disp < GRAPHENE.lattice_constant
 
+    @pytest.mark.slow
     def test_gsfe_map_nonnegative(self):
         """GSFE energy density should be non-negative."""
         config = SolverConfig(pixel_size=1.0, max_iter=100, display=False)

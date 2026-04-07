@@ -9,7 +9,7 @@ from moire_metrology.gsfe import GSFESurface
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 from moire_metrology.materials import Material
 from moire_metrology.mesh import MoireMesh, generate_finite_mesh
-from moire_metrology.pinning import PinningMap, STACKING_PHASES
+from moire_metrology.pinning import PinningMap
 from moire_metrology.solver import RelaxationSolver, SolverConfig
 
 
@@ -185,6 +185,7 @@ class TestConstrainedEnergy:
 
 
 class TestConstrainedSolver:
+    @pytest.mark.slow
     def test_solve_with_pins(self):
         """Constrained solve should converge with pinned sites."""
         lat = HexagonalLattice(alpha=0.247)

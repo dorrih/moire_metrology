@@ -110,7 +110,6 @@ def get_strain(
 
     x = x0 + r * cos(dphi0 - phi0_rad)
     y = r * sin(dphi0 - phi0_rad)
-    R = sqrt(x**2 + y**2)
 
     # Twist angle
     theta_twist_rad = arctan2(y, x)

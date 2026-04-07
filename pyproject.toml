@@ -32,8 +32,26 @@ meshpy = ["meshpy"]
 [tool.hatch.build.targets.wheel]
 packages = ["src/moire_metrology"]
 
+[tool.hatch.build.targets.sdist]
+# Keep the sdist small and avoid shipping copies of published PDFs.
+include = [
+    "src/moire_metrology/**/*.py",
+    "tests/**/*.py",
+    "examples/**/*.py",
+    "README.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# By default pytest skips tests marked `slow` (the multi-layer relaxation
+# integration tests, which dominate runtime). Run them explicitly with
+# `pytest -m slow` or run everything with `pytest -m ""`.
+addopts = "-m 'not slow'"
+markers = [
+    "slow: long-running integration tests (multi-layer relaxation, etc.)",
+]
 
 [tool.ruff]
 line-length = 100

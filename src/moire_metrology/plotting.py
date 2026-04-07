@@ -51,7 +51,6 @@ def plot_scalar_field(
     V1 = mesh.V1
     V2 = mesh.V2
     Nv = mesh.n_vertices
-    Nt = mesh.n_triangles
 
     # Build tiled mesh
     all_x = []
@@ -76,6 +75,29 @@ def plot_scalar_field(
     vals_all = np.concatenate(all_vals)
 
     tri_obj = Triangulation(x_all, y_all, tri_all)
+
+    # Mask out periodic wrap-around triangles. The structured moire mesh is
+    # built with periodic connectivity: triangles at the parallelogram edges
+    # connect vertices on opposite sides of the cell. Those wrap triangles
+    # span most of the cell and, if rendered, paint over the real data with
+    # a single (meaningless) interpolated value. We detect them as any
+    # triangle whose longest edge is more than a few times the median edge
+    # length — wrap edges are O(cell size) while regular edges are
+    # O(pixel size), so the ratio is very large and the threshold is robust.
+    tri_verts = tri_obj.triangles
+    px = x_all[tri_verts]
+    py = y_all[tri_verts]
+    edge_lengths = np.sqrt(
+        np.stack([
+            (px[:, 1] - px[:, 0]) ** 2 + (py[:, 1] - py[:, 0]) ** 2,
+            (px[:, 2] - px[:, 1]) ** 2 + (py[:, 2] - py[:, 1]) ** 2,
+            (px[:, 0] - px[:, 2]) ** 2 + (py[:, 0] - py[:, 2]) ** 2,
+        ], axis=1)
+    )
+    max_edge = edge_lengths.max(axis=1)
+    median_edge = float(np.median(edge_lengths))
+    wrap_mask = max_edge > 5.0 * median_edge
+    tri_obj.set_mask(wrap_mask)
 
     tc = ax.tripcolor(tri_obj, vals_all, cmap=cmap, shading="gouraud", **kwargs)
     if colorbar:

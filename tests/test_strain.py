@@ -1,14 +1,12 @@
 """Tests for strain extraction module."""
 
 import numpy as np
-import pytest
 
 from moire_metrology.strain import (
     get_strain,
     get_strain_axis,
     get_strain_minimize_compression,
     compute_strain_field,
-    compute_displacement_field,
     FringeLine,
     FringeSet,
     RegistryField,

@@ -175,7 +175,6 @@ class RelaxationEnergy:
         DyTWDy = Dy.T @ WDy
 
         all_rows, all_cols, all_data = [], [], []
-        idx = np.arange(Nv)
 
         for stack_idx in range(2):
             nlayer = self.nlayer1 if stack_idx == 0 else self.nlayer2

@@ -11,3 +11,6 @@ build/
 *.png
 poetry.lock
 .claude/
+.venv/
+docs_internal/
+examples/output/

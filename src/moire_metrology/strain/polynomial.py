@@ -120,7 +120,6 @@ def _poly_terms(x: np.ndarray, y: np.ndarray, order: int) -> np.ndarray:
     """
     x = np.asarray(x).ravel()
     y = np.asarray(y).ravel()
-    N = len(x)
     terms = []
     for total in range(order + 1):
         for j in range(total + 1):

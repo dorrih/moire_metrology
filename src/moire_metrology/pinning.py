@@ -30,9 +30,10 @@ Example:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 from .discretization import ConversionMatrices, PinnedConstraints
@@ -344,7 +345,6 @@ class InteractivePinner:
         else:
             # Show unrelaxed GSFE
             v0, w0 = self.geometry.stacking_phases(self.mesh.points[0], self.mesh.points[1])
-            from .gsfe import GSFESurface
             # Just use phase distance from AB as a proxy
             phase_dist = np.sqrt((v0 - 2*np.pi/3)**2 + (w0 - 2*np.pi/3)**2)
             tri = Triangulation(self.mesh.points[0], self.mesh.points[1], self.mesh.triangles)

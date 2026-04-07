@@ -40,7 +40,6 @@ class TestDiffMatrices:
         A = np.column_stack([V1, V2])
         Ainv = np.linalg.inv(A)
         # ds/dx = Ainv[0,0], ds/dy = Ainv[0,1]
-        expected_dfx = 2 * np.pi * Ainv[0, 0]  # df/ds * ds/dx evaluated per triangle
         # Get per-triangle s values for cos evaluation
         s_tri = np.mean(s[mesh.triangles], axis=1)
         expected_dfx_tri = 2 * np.pi * np.cos(2 * np.pi * s_tri) * Ainv[0, 0]

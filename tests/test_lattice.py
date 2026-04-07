@@ -1,7 +1,6 @@
 """Tests for lattice geometry and moire calculations."""
 
 import numpy as np
-import pytest
 
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry, rotation_matrix
 

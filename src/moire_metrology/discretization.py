@@ -317,9 +317,6 @@ class PeriodicDiscretization:
         nlayers_total = nlayer1 + nlayer2
         n_sol = 2 * nlayers_total * Nv  # total DOFs
 
-        eye_v = sparse.eye(Nv, format="csr")
-        zero_v = sparse.csr_matrix((Nv, Nv))
-
         # For single-interface bilayer, the solution has 2 layers * 2 components * Nv DOFs
         # U = [ux1(Nv), ux2(Nv), uy1(Nv), uy2(Nv)]
 

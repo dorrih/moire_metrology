@@ -159,11 +159,8 @@ class MoireGeometry:
         v, w : ndarray
             Stacking phase coordinates.
         """
-        M = self.lattice.reciprocal_matrix
-        R = self.R_twist
-
         # Stacking phase = M_twisted @ (r - u) - (1+delta)*M @ r
-        # where M_twisted = M @ R(-theta)^T
+        # where M_twisted = M @ R(-theta)^T (precomputed as self.Mu1/Mu2)
         pos = np.stack([x, y], axis=0)  # (2, N)
 
         # Phase from twisted layer

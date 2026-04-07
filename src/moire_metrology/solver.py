@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from time import perf_counter
+from typing import TYPE_CHECKING
 
 import numpy as np
 from scipy.optimize import minimize
@@ -28,6 +29,9 @@ from .lattice import HexagonalLattice, MoireGeometry
 from .materials import Material
 from .mesh import MoireMesh
 from .result import RelaxationResult
+
+if TYPE_CHECKING:
+    from .discretization import PinnedConstraints
 
 
 @dataclass
@@ -59,6 +63,7 @@ class SolverConfig:
     pixel_size: float = 0.2
     n_scale: int = 1
     display: bool = True
+    min_mesh_points: int = 100
 
 
 def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
@@ -72,6 +77,13 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     - Decreased when full Newton steps succeed (energy decreases)
     - Increased when the Hessian is indefinite or steps fail
 
+    Convergence is declared when EITHER
+        |grad|        < gtol  (absolute), OR
+        |grad|/|grad0| < gtol  (relative to initial gradient).
+    The relative criterion matters at low twist angles where the absolute
+    gradient norm at the energy minimum can be O(1-10) due to large total
+    energies, making any reasonable absolute gtol unreachable.
+
     The elastic Hessian is constant (precomputed). Only the GSFE Hessian
     changes each iteration. The linear system is solved with sparse LU.
     """
@@ -80,10 +92,14 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     U = U0.copy()
     E, grad = energy_func(U)
     gnorm = np.linalg.norm(grad)
+    gnorm0 = max(gnorm, 1.0)  # avoid div-by-zero if started at minimum
     n_sol = len(U)
     nit = 0
     nfev = 1
     t_start = perf_counter()
+
+    def converged(gn: float) -> bool:
+        return gn < gtol or (gn / gnorm0) < gtol
 
     # Initial damping: scale relative to the Hessian diagonal
     mu = 1e-4 * (energy_func.K1 + energy_func.G1)
@@ -92,7 +108,7 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     I_sp = speye(n_sol, format="csr")
 
     for nit in range(1, max_iter + 1):
-        if gnorm < gtol:
+        if converged(gnorm):
             break
 
         # Build Hessian + damping
@@ -145,10 +161,11 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
             print(f"  iter {nit:4d}: E = {E:.4f}, |grad| = {gnorm:.2e}, "
                   f"mu = {mu:.2e}, t = {elapsed:.1f}s")
 
-    message = "converged" if gnorm < gtol else f"max iterations ({max_iter}) reached"
+    success = converged(gnorm)
+    message = "converged" if success else f"max iterations ({max_iter}) reached"
     return {
         "x": U, "fun": E, "jac": grad, "nit": nit, "nfev": nfev,
-        "message": message, "success": gnorm < gtol,
+        "message": message, "success": success,
     }
 
 
@@ -202,7 +219,12 @@ class RelaxationSolver:
             print(f"Moire wavelength: {geometry.wavelength:.2f} nm")
             print(f"Twist angle: {theta_twist:.4f} deg, delta: {delta:.6f}")
 
-        mesh = MoireMesh.generate(geometry, pixel_size=cfg.pixel_size, n_scale=cfg.n_scale)
+        mesh = MoireMesh.generate(
+            geometry,
+            pixel_size=cfg.pixel_size,
+            n_scale=cfg.n_scale,
+            min_points=cfg.min_mesh_points,
+        )
         if cfg.display:
             print(f"Mesh: {mesh.n_vertices} vertices, {mesh.n_triangles} triangles")
 
@@ -273,7 +295,9 @@ class RelaxationSolver:
             result.success = res["success"]
         else:
             # Fallback to scipy.optimize.minimize (L-BFGS-B, etc.)
-            options = {"maxiter": cfg.max_iter, "gtol": cfg.gtol, "disp": False}
+            # Note: `disp`/`iprint` options are deprecated in SciPy 1.18 for
+            # L-BFGS-B, so we do not pass them — the solver is silent by default.
+            options = {"maxiter": cfg.max_iter, "gtol": cfg.gtol}
             if cfg.method == "L-BFGS-B":
                 options["maxcor"] = 20
                 options["maxls"] = 40
