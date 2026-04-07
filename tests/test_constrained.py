@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from moire_metrology.discretization import PeriodicDiscretization, PinnedConstraints
+from moire_metrology.discretization import Discretization, PinnedConstraints
 from moire_metrology.energy import RelaxationEnergy
 from moire_metrology.gsfe import GSFESurface
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
@@ -28,7 +28,7 @@ def setup_periodic():
     lat = HexagonalLattice(alpha=0.247)
     geom = MoireGeometry(lat, theta_twist=2.0)
     mesh = MoireMesh.generate(geom, pixel_size=1.0)
-    disc = PeriodicDiscretization(mesh, geom)
+    disc = Discretization(mesh, geom)
     conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=1)
     gsfe = GSFESurface(TBLG.gsfe_coeffs)
     return mesh, geom, disc, conv, gsfe
@@ -191,7 +191,7 @@ class TestConstrainedSolver:
         lat = HexagonalLattice(alpha=0.247)
         geom = MoireGeometry(lat, theta_twist=2.0)
         mesh = MoireMesh.generate(geom, pixel_size=1.0)
-        disc = PeriodicDiscretization(mesh, geom)
+        disc = Discretization(mesh, geom)
         conv = disc.build_conversion_matrices()
 
         pins = PinningMap(mesh, geom)
@@ -240,7 +240,7 @@ class TestFiniteMesh:
         lat = HexagonalLattice(alpha=0.247)
         geom = MoireGeometry(lat, theta_twist=2.0)
         mesh = generate_finite_mesh(geom, n_cells=2, pixel_size=1.0)
-        disc = PeriodicDiscretization(mesh, geom)
+        disc = Discretization(mesh, geom)
 
         # Linear field f = a*x + b*y has constant df/dx = a, df/dy = b
         a, b = 0.7, -0.3
@@ -267,13 +267,13 @@ class TestFiniteMeshRelaxation:
     """
 
     def _build_finite_setup(self, n_cells=2, pixel_size=1.0, theta=2.0):
-        from moire_metrology.discretization import PeriodicDiscretization
+        from moire_metrology.discretization import Discretization
         from moire_metrology.lattice import HexagonalLattice, MoireGeometry
         from moire_metrology.mesh import generate_finite_mesh
         lat = HexagonalLattice(alpha=TBLG.lattice_constant)
         geom = MoireGeometry(lat, theta_twist=theta)
         mesh = generate_finite_mesh(geom, n_cells=n_cells, pixel_size=pixel_size)
-        disc = PeriodicDiscretization(mesh, geom)
+        disc = Discretization(mesh, geom)
         conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=1)
         return mesh, geom, disc, conv
 

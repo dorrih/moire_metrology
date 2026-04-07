@@ -79,9 +79,9 @@ class RelaxationResult:
 
         local_twist = theta_twist + 0.5*(duy/dx - dux/dy) * 180/pi
         """
-        from .discretization import PeriodicDiscretization
+        from .discretization import Discretization
 
-        disc = PeriodicDiscretization(self.mesh, self.geometry)
+        disc = Discretization(self.mesh, self.geometry)
 
         if stack == 1:
             ux = self.displacement_x1[layer]

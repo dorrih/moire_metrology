@@ -159,3 +159,43 @@ GRAPHENE_ON_HBN = Material(
     shear_modulus=5765.0,
     gsfe_coeffs=_gr_hbn_coeffs,
 )
+
+# H-stacked MoSe2 / WSe2 heterostructure.
+#
+# Source: Shabani, Halbertal, Wu, Chen, Liu, Hone, Yao, Basov, Zhu &
+# Pasupathy, "Deep moiré potentials in twisted transition metal
+# dichalcogenide bilayers", Nature Physics 17, 720-725 (2021).
+# DOI: 10.1038/s41567-021-01174-7. The Methods section reports both the
+# elastic moduli (per layer) and the GSFE coefficients of the H-stacked
+# heterointerface, all in meV/unit-cell, in the same Carr-style Fourier
+# basis the package uses (so no Zhou→Carr conversion is needed).
+#
+# In an H-stacked MoSe2/WSe2 bilayer the global energy minimum is the MX'
+# stacking; XX' is most unfavourable; MM' is a local minimum. The c4, c5
+# coefficients (sin terms) are non-zero, reflecting the broken inversion
+# symmetry of the heterointerface.
+#
+# Both Material entries below carry the SAME `gsfe_coeffs` because the
+# package's RelaxationSolver only consults `material1.gsfe_coeffs` for
+# the interface GSFE — `material2.gsfe_coeffs` is ignored at the
+# interface, so we duplicate the values for clarity. Use either as
+# `material1` and the other as `material2` in solve(); the lattice
+# mismatch (~0.18%) is computed automatically from the lattice
+# constants and drives a non-trivial moiré pattern even at zero twist.
+_mose2_wse2_h_gsfe = (42.6, 16.0, -2.7, -1.1, 3.7, 0.6)
+
+MOSE2 = Material(
+    name="MoSe2",
+    lattice_constant=0.3288,
+    bulk_modulus=40521.0,
+    shear_modulus=26464.0,
+    gsfe_coeffs=_mose2_wse2_h_gsfe,
+)
+
+WSE2 = Material(
+    name="WSe2",
+    lattice_constant=0.3282,
+    bulk_modulus=43113.0,
+    shear_modulus=30770.0,
+    gsfe_coeffs=_mose2_wse2_h_gsfe,
+)

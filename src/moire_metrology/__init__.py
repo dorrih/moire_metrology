@@ -19,6 +19,8 @@ from .materials import (
     GRAPHENE_ON_HBN,
     HBN_AA,
     HBN_AAP,
+    MOSE2,
+    WSE2,
     Material,
 )
 from .mesh import MoireMesh, generate_finite_mesh
@@ -36,6 +38,8 @@ __all__ = [
     "GRAPHENE_ON_HBN",
     "HBN_AA",
     "HBN_AAP",
+    "MOSE2",
+    "WSE2",
     "MoireMesh",
     "generate_finite_mesh",
     "PinningMap",

@@ -181,35 +181,51 @@ def generate_finite_mesh(
     geometry: MoireGeometry,
     n_cells: int = 3,
     pixel_size: float = 0.5,
+    *,
+    n_cells_x: int | None = None,
+    n_cells_y: int | None = None,
 ) -> MoireMesh:
     """Generate a non-periodic mesh covering multiple moire unit cells.
 
-    Creates a hexagonal domain of n_cells moire periods across, with
-    no periodic wrapping. Suitable for constrained relaxation.
+    Creates a parallelogram domain spanning n_cells moire vectors in
+    each direction (or n_cells_x along V1 and n_cells_y along V2 when
+    a rectangular extent is needed), with no periodic wrapping.
+    Suitable for constrained relaxation.
 
     Parameters
     ----------
     geometry : MoireGeometry
         Moire geometry.
     n_cells : int
-        Number of moire unit cells across the domain diameter.
+        Number of moire unit cells along each direction. Used as the
+        default for both axes when n_cells_x / n_cells_y aren't given.
     pixel_size : float
         Target element size in nm.
+    n_cells_x, n_cells_y : int or None
+        Optional overrides for the number of moire cells along V1 and
+        V2 respectively. If either is None, falls back to ``n_cells``.
+        Use these to build a rectangular finite domain that's wider in
+        one direction than the other (e.g. for a twist-gradient demo
+        where you want many wavelengths along the gradient axis but
+        only a few perpendicular to it).
 
     Returns
     -------
     MoireMesh
         Non-periodic mesh (boundary triangles do NOT wrap).
     """
+    nx = n_cells if n_cells_x is None else n_cells_x
+    ny = n_cells if n_cells_y is None else n_cells_y
+
     V1 = geometry.V1
     V2 = geometry.V2
 
-    # Generate points on a grid covering n_cells x n_cells parallelograms
-    ns = max(4, int(np.ceil(n_cells * np.linalg.norm(V1) / pixel_size)))
-    nt = max(4, int(np.ceil(n_cells * np.linalg.norm(V2) / pixel_size)))
+    # Generate points on a grid covering nx * ny parallelograms
+    ns = max(4, int(np.ceil(nx * np.linalg.norm(V1) / pixel_size)))
+    nt = max(4, int(np.ceil(ny * np.linalg.norm(V2) / pixel_size)))
 
-    s_vals = np.linspace(0, n_cells, ns + 1)
-    t_vals = np.linspace(0, n_cells, nt + 1)
+    s_vals = np.linspace(0, nx, ns + 1)
+    t_vals = np.linspace(0, ny, nt + 1)
 
     ss, tt = np.meshgrid(s_vals, t_vals, indexing="ij")
     ss_flat = ss.ravel()
@@ -225,11 +241,11 @@ def generate_finite_mesh(
     return MoireMesh(
         points=points,
         triangles=triangles,
-        V1=n_cells * V1,
-        V2=n_cells * V2,
+        V1=nx * V1,
+        V2=ny * V2,
         ns=ns + 1,
         nt=nt + 1,
-        n_scale=n_cells,
+        n_scale=max(nx, ny),
         is_periodic=False,
     )
 
