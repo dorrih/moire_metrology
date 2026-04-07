@@ -41,7 +41,11 @@ class TestGetStrainAxis:
 
 class TestGetStrain:
     def test_unstrained_60deg(self):
-        """At dphi=60 deg with matched lattices, compression-minimized strain should be ~zero."""
+        """At dphi=60 deg with matched lattices and moire wavelength
+        chosen to be exactly the unstrained case, both strain components
+        should be exactly zero (to floating-point precision) and the
+        recovered twist should match the analytic value.
+        """
         alpha = 0.247
         theta_true = 2.0
         lam = alpha / (2 * np.sin(np.radians(theta_true / 2)))
@@ -51,8 +55,13 @@ class TestGetStrain:
             lambda1=lam, lambda2=lam,
             phi1_deg=0.0, phi2_deg=60.0,
         )
-        np.testing.assert_allclose(abs(result.theta_twist), theta_true, atol=0.1)
-        np.testing.assert_allclose(result.eps_c, 0.0, atol=1e-3)
+        np.testing.assert_allclose(abs(result.theta_twist), theta_true, atol=1e-6)
+        # BOTH strain components must vanish at the unstrained-symmetric
+        # point — eps_s in particular was previously broken (a stray
+        # alpha factor in the M = ... line of get_strain put eps_s into
+        # the percent range here when it should be exactly zero).
+        np.testing.assert_allclose(result.eps_c, 0.0, atol=1e-12)
+        np.testing.assert_allclose(result.eps_s, 0.0, atol=1e-12)
 
     def test_nonzero_mismatch(self):
         """With lattice mismatch, should return reasonable values."""
@@ -94,6 +103,56 @@ class TestGetStrainMinimize:
         alpha = 0.247
         eps_s = shear_strain_invariant(alpha, alpha, 10.0, 9.0, 0.0, 55.0)
         assert eps_s > 0  # should be nonzero for asymmetric moire
+
+    def test_get_strain_eps_s_phi0_invariant(self):
+        """Recovered eps_s from get_strain must not depend on phi0.
+
+        Regression test for the alpha-double-counting bug in the
+        deformation-matrix construction (M line of get_strain): a stray
+        alpha factor made the recovered strain tensor scale wrong, which
+        broke phi0 invariance of eps_s.
+        """
+        alpha = 0.247
+        lam1, lam2 = 10.0, 9.0
+        phi1, phi2 = 0.0, 55.0
+
+        eps_s_values = []
+        for phi0 in np.linspace(-180.0, 150.0, 12):
+            result = get_strain(
+                alpha1=alpha, alpha2=alpha,
+                lambda1=lam1, lambda2=lam2,
+                phi1_deg=phi1, phi2_deg=phi2,
+                phi0=phi0,
+            )
+            eps_s_values.append(result.eps_s)
+
+        eps_s_arr = np.array(eps_s_values)
+        # All values must agree to ~machine precision.
+        np.testing.assert_allclose(eps_s_arr, eps_s_arr[0], atol=1e-12)
+
+    def test_get_strain_eps_s_matches_invariant(self):
+        """get_strain's eps_s must equal the closed-form Eq. 6 invariant.
+
+        Regression test for the alpha-double-counting bug.
+        """
+        from moire_metrology.strain.extraction import shear_strain_invariant
+
+        alpha = 0.247
+        cases = [
+            (10.0, 9.0, 0.0, 55.0),
+            (15.0, 14.0, 0.0, 50.0),
+            (8.0, 8.0, 0.0, 65.0),
+            (12.0, 11.0, 0.0, 70.0),
+        ]
+        for lam1, lam2, phi1, phi2 in cases:
+            result = get_strain(
+                alpha1=alpha, alpha2=alpha,
+                lambda1=lam1, lambda2=lam2,
+                phi1_deg=phi1, phi2_deg=phi2,
+                phi0=0.0,
+            )
+            invariant = shear_strain_invariant(alpha, alpha, lam1, lam2, phi1, phi2)
+            np.testing.assert_allclose(abs(result.eps_s), invariant, atol=1e-12)
 
 
 class TestRegistryField:

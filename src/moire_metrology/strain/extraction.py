@@ -119,8 +119,13 @@ def get_strain(
     ct, st = cos(theta_twist_rad), sin(theta_twist_rad)
     Rt = np.array([[ct, -st], [st, ct]])
 
-    # Deformation matrix and strain tensor
-    M = (1.0 + delta) * np.eye(2) + alpha * b1b2 @ np.linalg.inv(v1v2)
+    # Deformation matrix and strain tensor.
+    # NOTE: ``b1b2`` is already premultiplied by alpha at construction
+    # (lines above), so the second term is just ``b1b2 @ inv(v1v2)`` —
+    # an earlier version of this file applied the alpha factor twice
+    # here, which made M off-scale and broke the recovered strain tensor
+    # (eps_s came out wrong at the unstrained-symmetric point).
+    M = (1.0 + delta) * np.eye(2) + b1b2 @ np.linalg.inv(v1v2)
     S_mat = np.eye(2) - Rt @ M
 
     S11 = S_mat[0, 0]
