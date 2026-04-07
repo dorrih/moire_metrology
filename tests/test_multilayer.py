@@ -138,7 +138,7 @@ class TestFixOuterLayers:
     def test_explicit_constraints_conflict_raises(self):
         """Combining fix_bottom with an explicit constraints object is rejected."""
         from moire_metrology.discretization import (
-            PeriodicDiscretization, build_outer_layer_constraints,
+            Discretization, build_outer_layer_constraints,
         )
         from moire_metrology.lattice import HexagonalLattice, MoireGeometry
         from moire_metrology.mesh import MoireMesh
@@ -147,7 +147,7 @@ class TestFixOuterLayers:
         lat = HexagonalLattice(alpha=TBLG.lattice_constant)
         geom = MoireGeometry(lat, theta_twist=2.0)
         mesh = MoireMesh.generate(geom, pixel_size=1.5, min_points=20)
-        disc = PeriodicDiscretization(mesh, geom)
+        disc = Discretization(mesh, geom)
         conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=2)
         explicit = build_outer_layer_constraints(conv, fix_top=False, fix_bottom=True)
 
@@ -163,7 +163,7 @@ class TestFixOuterLayers:
 class TestMultiLayerGradient:
     def test_gradient_trilayer(self):
         """Verify gradient via finite differences for a 3-layer system."""
-        from moire_metrology.discretization import PeriodicDiscretization
+        from moire_metrology.discretization import Discretization
         from moire_metrology.energy import RelaxationEnergy
         from moire_metrology.gsfe import GSFESurface
         from moire_metrology.lattice import HexagonalLattice, MoireGeometry
@@ -172,7 +172,7 @@ class TestMultiLayerGradient:
         lat = HexagonalLattice(alpha=0.247)
         geom = MoireGeometry(lat, theta_twist=5.0)
         mesh = MoireMesh.generate(geom, pixel_size=2.0)
-        disc = PeriodicDiscretization(mesh, geom)
+        disc = Discretization(mesh, geom)
         conv = disc.build_conversion_matrices(nlayer1=2, nlayer2=1)
         gsfe = GSFESurface(TBLG.gsfe_coeffs)
 
@@ -213,7 +213,7 @@ class TestMultiLayerGradient:
 
     def test_hessian_trilayer(self):
         """Verify Hessian via finite differences of gradient for a 3-layer system."""
-        from moire_metrology.discretization import PeriodicDiscretization
+        from moire_metrology.discretization import Discretization
         from moire_metrology.energy import RelaxationEnergy
         from moire_metrology.gsfe import GSFESurface
         from moire_metrology.lattice import HexagonalLattice, MoireGeometry
@@ -222,7 +222,7 @@ class TestMultiLayerGradient:
         lat = HexagonalLattice(alpha=0.247)
         geom = MoireGeometry(lat, theta_twist=5.0)
         mesh = MoireMesh.generate(geom, pixel_size=2.0)
-        disc = PeriodicDiscretization(mesh, geom)
+        disc = Discretization(mesh, geom)
         conv = disc.build_conversion_matrices(nlayer1=2, nlayer2=1)
         gsfe = GSFESurface(TBLG.gsfe_coeffs)
 

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from moire_metrology.discretization import PeriodicDiscretization
+from moire_metrology.discretization import Discretization
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 from moire_metrology.mesh import MoireMesh
 
@@ -13,7 +13,7 @@ def setup():
     lat = HexagonalLattice(alpha=0.247)
     geom = MoireGeometry(lat, theta_twist=2.0)
     mesh = MoireMesh.generate(geom, pixel_size=0.5)
-    disc = PeriodicDiscretization(mesh, geom)
+    disc = Discretization(mesh, geom)
     return mesh, geom, disc
 
 

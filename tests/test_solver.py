@@ -173,7 +173,7 @@ class TestSolverBasic:
 class TestEnergyGradient:
     def test_gradient_finite_difference(self):
         """Verify gradient against finite differences."""
-        from moire_metrology.discretization import PeriodicDiscretization
+        from moire_metrology.discretization import Discretization
         from moire_metrology.energy import RelaxationEnergy
         from moire_metrology.gsfe import GSFESurface
         from moire_metrology.lattice import HexagonalLattice, MoireGeometry
@@ -182,7 +182,7 @@ class TestEnergyGradient:
         lat = HexagonalLattice(alpha=0.247)
         geom = MoireGeometry(lat, theta_twist=5.0)
         mesh = MoireMesh.generate(geom, pixel_size=1.5)
-        disc = PeriodicDiscretization(mesh, geom)
+        disc = Discretization(mesh, geom)
         conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=1)
         gsfe = GSFESurface(GRAPHENE.gsfe_coeffs)
 

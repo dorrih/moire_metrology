@@ -162,15 +162,15 @@ class ConversionMatrices:
     nlayer2: int
 
 
-class PeriodicDiscretization:
+class Discretization:
     """FEM infrastructure for a triangular moire mesh.
 
-    Despite the name, this class handles BOTH periodic and finite (open)
-    meshes. The mesh's ``is_periodic`` flag controls whether the diff
-    matrix builder applies lattice-vector wrap corrections to relative
-    vertex positions: periodic meshes need them (the structured
-    triangulation contains wrap-around triangles whose vertices are
-    placed on opposite sides of the parallelogram), finite meshes don't.
+    Handles BOTH periodic and finite (open) meshes. The mesh's
+    ``is_periodic`` flag controls whether the diff matrix builder
+    applies lattice-vector wrap corrections to relative vertex
+    positions: periodic meshes need them (the structured triangulation
+    contains wrap-around triangles whose vertices are placed on
+    opposite sides of the parallelogram), finite meshes don't.
 
     Parameters
     ----------
@@ -463,3 +463,12 @@ def _periodic_shift(
     dy_corr = dy - n1 * V1[1] - n2 * V2[1]
 
     return dx_corr, dy_corr
+
+
+# Backwards-compatibility alias. The class was originally named
+# PeriodicDiscretization back when the package only handled periodic
+# meshes; it now handles both periodic and finite meshes via the
+# MoireMesh.is_periodic flag, so the unqualified name `Discretization`
+# is more accurate. Existing code that imports the old name continues
+# to work.
+PeriodicDiscretization = Discretization
