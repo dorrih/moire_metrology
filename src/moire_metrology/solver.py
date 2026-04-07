@@ -186,6 +186,8 @@ class RelaxationSolver:
         theta0: float = 0.0,
         initial_solution: np.ndarray | None = None,
         constraints: "PinnedConstraints | None" = None,
+        fix_top: bool = False,
+        fix_bottom: bool = False,
     ) -> RelaxationResult:
         """Solve the relaxation problem.
 
@@ -206,6 +208,16 @@ class RelaxationSolver:
         constraints : PinnedConstraints or None
             If set, pins certain DOFs to fixed displacements while
             optimizing the rest. Build via PinningMap.build_constraints().
+            Mutually exclusive with fix_top / fix_bottom.
+        fix_top : bool
+            Pin all DOFs of the topmost layer (stack 1, layer 0) to zero.
+            Use this to clamp the upper free surface of the heterostructure
+            and approximate a semi-infinite top.
+        fix_bottom : bool
+            Pin all DOFs of the bottommost layer (stack 2, layer nlayer2-1)
+            to zero. Use this to clamp the substrate's free surface and
+            approximate a semi-infinite bottom — typical for simulating a
+            twisted flake on a thick substrate (e.g. graphene on graphite).
         """
         cfg = self.config
 
@@ -230,6 +242,19 @@ class RelaxationSolver:
 
         disc = PeriodicDiscretization(mesh, geometry)
         conv = disc.build_conversion_matrices(nlayer1=nlayer1, nlayer2=nlayer2)
+
+        # Outer-layer clamps build a PinnedConstraints automatically.
+        if (fix_top or fix_bottom):
+            if constraints is not None:
+                raise ValueError(
+                    "fix_top / fix_bottom cannot be combined with an explicit "
+                    "constraints argument; build a single PinnedConstraints "
+                    "manually if you need both kinds of pinning."
+                )
+            from .discretization import build_outer_layer_constraints
+            constraints = build_outer_layer_constraints(
+                conv, fix_top=fix_top, fix_bottom=fix_bottom,
+            )
 
         gsfe_interface = GSFESurface(material1.gsfe_coeffs)
         gsfe_flake1 = GSFESurface(material1.gsfe_coeffs) if nlayer1 > 1 else None

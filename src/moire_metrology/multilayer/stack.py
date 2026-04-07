@@ -65,13 +65,28 @@ class LayerStack:
             return self.delta
         return self.top.lattice_constant / self.bottom.lattice_constant - 1.0
 
-    def solve(self, config: SolverConfig | None = None):
+    def solve(
+        self,
+        config: SolverConfig | None = None,
+        *,
+        fix_top: bool = False,
+        fix_bottom: bool = False,
+    ):
         """Run relaxation on this stack.
 
         Parameters
         ----------
         config : SolverConfig or None
             Solver configuration. If None, uses defaults.
+        fix_top : bool
+            Pin all DOFs of the topmost layer (the topmost layer of the
+            top flake) to zero. Use this to simulate a rigid bulk above
+            the heterostructure.
+        fix_bottom : bool
+            Pin all DOFs of the bottommost layer (the deepest layer of
+            the bottom flake) to zero. Use this to simulate a rigid bulk
+            below the heterostructure — typical for a twisted flake on a
+            thick substrate (e.g. graphene on graphite).
 
         Returns
         -------
@@ -86,6 +101,8 @@ class LayerStack:
             nlayer2=self.n_bottom,
             delta=self.delta,
             theta0=self.theta0,
+            fix_top=fix_top,
+            fix_bottom=fix_bottom,
         )
 
     def describe(self) -> str:

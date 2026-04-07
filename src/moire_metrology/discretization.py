@@ -70,6 +70,76 @@ class PinnedConstraints:
         return H_full[self.free_indices][:, self.free_indices].tocsr()
 
 
+def build_outer_layer_constraints(
+    conv: "ConversionMatrices", fix_top: bool, fix_bottom: bool
+) -> PinnedConstraints:
+    """Build PinnedConstraints clamping the outer (free-surface) layers to zero.
+
+    For a multi-layer stack, the "top" outer layer is the topmost layer of
+    stack 1 (the layer farthest from the twisted interface, on the upper
+    side of the heterostructure). The "bottom" outer layer is the deepest
+    layer of stack 2 (the layer farthest from the interface on the lower
+    side, i.e. the substrate's free surface in a typical setup).
+
+    Pinning these to zero displacement simulates the layers being bonded
+    to a rigid bulk — the conventional way to approximate a semi-infinite
+    substrate with a finite stack. This matches the `fix_external_layers`
+    parameter in the MATLAB paper code.
+
+    Parameters
+    ----------
+    conv : ConversionMatrices
+        Conversion matrices describing the multi-layer DOF layout.
+    fix_top : bool
+        Pin all DOFs (ux and uy at every vertex) of stack 1, layer 0.
+    fix_bottom : bool
+        Pin all DOFs of stack 2, layer (nlayer2 - 1).
+
+    Returns
+    -------
+    PinnedConstraints
+        Suitable to pass to RelaxationSolver.solve(constraints=...).
+    """
+    Nv = conv.n_vertices
+    nlayer1 = conv.nlayer1
+    nlayer2 = conv.nlayer2
+    nlayers_total = nlayer1 + nlayer2
+    n_full = conv.n_sol
+
+    pinned: list[int] = []
+
+    def _layer_block_indices(global_layer_idx: int) -> list[int]:
+        """All DOF indices (ux + uy) for one layer at every vertex."""
+        ox = global_layer_idx * Nv
+        oy = nlayers_total * Nv + global_layer_idx * Nv
+        return list(range(ox, ox + Nv)) + list(range(oy, oy + Nv))
+
+    if fix_top:
+        # Topmost layer is stack 1 layer 0 (global index 0).
+        if nlayer1 < 1:
+            raise ValueError("fix_top requires nlayer1 >= 1")
+        pinned.extend(_layer_block_indices(0))
+
+    if fix_bottom:
+        # Bottommost layer is stack 2 layer (nlayer2 - 1).
+        if nlayer2 < 1:
+            raise ValueError("fix_bottom requires nlayer2 >= 1")
+        last_global = nlayer1 + nlayer2 - 1
+        pinned.extend(_layer_block_indices(last_global))
+
+    pinned_indices = np.array(sorted(set(pinned)), dtype=np.int64)
+    pinned_values = np.zeros(len(pinned_indices))
+    free_indices = np.setdiff1d(np.arange(n_full, dtype=np.int64), pinned_indices)
+
+    return PinnedConstraints(
+        free_indices=free_indices,
+        pinned_indices=pinned_indices,
+        pinned_values=pinned_values,
+        n_free=len(free_indices),
+        n_full=n_full,
+    )
+
+
 @dataclass
 class ConversionMatrices:
     """Matrices mapping the flat solution vector U to per-layer displacements.

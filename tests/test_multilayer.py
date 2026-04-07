@@ -19,6 +19,10 @@ TBLG = Material(
 
 FAST_CONFIG = SolverConfig(method="L-BFGS-B", pixel_size=1.0, max_iter=200, gtol=1e-4, display=False)
 
+# Even smaller config for fix_top/fix_bottom tests — runs in <2s.
+TINY_CONFIG = SolverConfig(method="L-BFGS-B", pixel_size=1.5, max_iter=100,
+                           gtol=1e-3, display=False, min_mesh_points=20)
+
 
 class TestLayerStack:
     def test_describe(self):
@@ -59,6 +63,101 @@ class TestLayerStack:
 
         # More layers means more elastic energy contribution
         assert result2.unrelaxed_energy > result1.unrelaxed_energy
+
+
+class TestFixOuterLayers:
+    """Tests for the fix_top / fix_bottom layer-clamping options."""
+
+    def test_fix_bottom_pins_deepest_substrate_layer(self):
+        """fix_bottom=True must pin all DOFs of the bottommost layer to zero."""
+        stack = LayerStack(
+            top=TBLG, n_top=1, bottom=TBLG, n_bottom=3, theta_twist=2.0,
+        )
+        result = stack.solve(TINY_CONFIG, fix_bottom=True)
+
+        # Bottommost (deepest) substrate layer is index n_bottom - 1
+        deepest_ux = result.displacement_x2[-1]
+        deepest_uy = result.displacement_y2[-1]
+        assert np.allclose(deepest_ux, 0.0, atol=1e-12), \
+            f"deepest layer ux should be zero, got max abs {np.abs(deepest_ux).max()}"
+        assert np.allclose(deepest_uy, 0.0, atol=1e-12)
+
+        # Free layers (above) should be allowed to relax
+        free_max = max(np.abs(result.displacement_x2[k]).max() for k in range(2))
+        assert free_max > 0.0
+
+        # Constrained relaxation still reduces energy from the rigid state
+        assert result.total_energy < result.unrelaxed_energy
+
+    def test_fix_top_pins_topmost_layer(self):
+        """fix_top=True must pin all DOFs of the topmost layer to zero."""
+        stack = LayerStack(
+            top=TBLG, n_top=2, bottom=TBLG, n_bottom=1, theta_twist=2.0,
+        )
+        result = stack.solve(TINY_CONFIG, fix_top=True)
+
+        # Topmost layer is stack 1, layer 0
+        top_ux = result.displacement_x1[0]
+        top_uy = result.displacement_y1[0]
+        assert np.allclose(top_ux, 0.0, atol=1e-12)
+        assert np.allclose(top_uy, 0.0, atol=1e-12)
+
+        # The other top-flake layer (layer 1, adjacent to the interface)
+        # should be free to relax.
+        inner_max = float(np.abs(result.displacement_x1[1]).max())
+        assert inner_max > 0.0
+
+    def test_fix_both_clamps_both_outer_layers(self):
+        stack = LayerStack(
+            top=TBLG, n_top=2, bottom=TBLG, n_bottom=2, theta_twist=2.0,
+        )
+        result = stack.solve(TINY_CONFIG, fix_top=True, fix_bottom=True)
+
+        assert np.allclose(result.displacement_x1[0], 0.0, atol=1e-12)
+        assert np.allclose(result.displacement_y1[0], 0.0, atol=1e-12)
+        assert np.allclose(result.displacement_x2[-1], 0.0, atol=1e-12)
+        assert np.allclose(result.displacement_y2[-1], 0.0, atol=1e-12)
+
+    def test_constrained_energy_above_unconstrained(self):
+        """Clamping the bottom layer must give a (weakly) higher relaxed energy
+        than the unconstrained case — pinning is a strict reduction in
+        feasible set."""
+        stack = LayerStack(
+            top=TBLG, n_top=1, bottom=TBLG, n_bottom=3, theta_twist=2.0,
+        )
+        free = stack.solve(TINY_CONFIG)
+        clamped = stack.solve(TINY_CONFIG, fix_bottom=True)
+
+        # Both should beat the rigid configuration
+        assert free.total_energy < free.unrelaxed_energy
+        assert clamped.total_energy < clamped.unrelaxed_energy
+        # Clamped is at least as costly as free (with a tiny tolerance for
+        # solver noise on tiny meshes)
+        assert clamped.total_energy >= free.total_energy - 1e-3 * abs(free.total_energy)
+
+    def test_explicit_constraints_conflict_raises(self):
+        """Combining fix_bottom with an explicit constraints object is rejected."""
+        from moire_metrology.discretization import (
+            PeriodicDiscretization, build_outer_layer_constraints,
+        )
+        from moire_metrology.lattice import HexagonalLattice, MoireGeometry
+        from moire_metrology.mesh import MoireMesh
+        from moire_metrology.solver import RelaxationSolver
+
+        lat = HexagonalLattice(alpha=TBLG.lattice_constant)
+        geom = MoireGeometry(lat, theta_twist=2.0)
+        mesh = MoireMesh.generate(geom, pixel_size=1.5, min_points=20)
+        disc = PeriodicDiscretization(mesh, geom)
+        conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=2)
+        explicit = build_outer_layer_constraints(conv, fix_top=False, fix_bottom=True)
+
+        solver = RelaxationSolver(TINY_CONFIG)
+        with pytest.raises(ValueError, match="cannot be combined"):
+            solver.solve(
+                material1=TBLG, material2=TBLG, theta_twist=2.0,
+                nlayer1=1, nlayer2=2,
+                constraints=explicit, fix_bottom=True,
+            )
 
 
 class TestMultiLayerGradient:
