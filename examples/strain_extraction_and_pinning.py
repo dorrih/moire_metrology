@@ -81,7 +81,6 @@ from moire_metrology.discretization import Discretization, PinnedConstraints
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 from moire_metrology.mesh import generate_finite_mesh
 from moire_metrology.strain import get_strain_minimize_compression
-from moire_metrology.strain.extraction import shear_strain_invariant
 
 
 OUT_DIR = Path(__file__).parent / "output"
@@ -135,16 +134,7 @@ def part_a_strain_sweep() -> None:
         )
         theta_recovered[k] = result.theta_twist
         eps_c[k] = result.eps_c
-        # NOTE: we use the closed-form Eq 6 helper for ε_s rather than
-        # result.eps_s. The latter is computed from the principal strains
-        # of the recovered tensor, but currently has a φ₀-dependence bug
-        # that the closed-form invariant does not have. See backlog
-        # (get_strain_minimize_compression eps_s bug).
-        eps_s[k] = shear_strain_invariant(
-            alpha1=ALPHA, alpha2=ALPHA,
-            lambda1=LAMBDA1, lambda2=LAMBDA2,
-            phi1_deg=PHI1_DEG, phi2_deg=PHI1_DEG + dphi,
-        )
+        eps_s[k] = abs(result.eps_s)
         phi0[k] = result.phi0
 
     # Analytic prediction at Δφ = 60° (the unstrained-symmetric case):
@@ -159,7 +149,7 @@ def part_a_strain_sweep() -> None:
     print(f"  Analytic θ at Δφ=60°:        {theta_unstrained_deg:.6f}°")
     print(f"  Recovered θ at Δφ=60°:       {theta_recovered[idx_60]:.6f}°")
     print(f"  ε_c (compression) at 60°:    {abs(eps_c[idx_60]):.2e}")
-    print(f"  ε_s (shear, Eq 6) at 60°:    {abs(eps_s[idx_60]):.2e}")
+    print(f"  ε_s (shear) at 60°:          {abs(eps_s[idx_60]):.2e}")
 
     # ----- Plots ------------------------------------------------------
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
