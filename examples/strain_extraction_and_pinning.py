@@ -1,8 +1,8 @@
 """Strain extraction and spatially-varying constrained relaxation.
 
-A three-part example. Part A is the inverse strain-extraction
-calculation; Parts B and C are the constrained finite-mesh
-relaxation workflow that the package's `PinningMap` and
+A two-part example. Part A is the inverse strain-extraction
+calculation; Part B is the constrained finite-mesh relaxation
+workflow that the package's `PinningMap` / `PinnedConstraints` and
 `generate_finite_mesh` enable.
 
 Part A — Strain extraction sweep (no relaxation)
@@ -21,51 +21,49 @@ angle θ and the heterostrain tensor of the layers. Sweeps Δφ ≡ φ₂ − φ
 at fixed λ₁ = λ₂ and plots recovered θ, ε_c, ε_s. At Δφ = 60° the
 unstrained-symmetric solution is recovered exactly.
 
-Both Parts B and C use the H-stacked MoSe2/WSe2 heterointerface
-(α_MoSe2 = 0.3288 nm, α_WSe2 = 0.3282 nm, intrinsic mismatch
-δ ≈ 0.18% — non-zero even at θ = 0). This matches the experimental
-system in Shabani, Halbertal et al., *Deep moiré potentials in
-twisted transition metal dichalcogenide bilayers*, Nature Physics
-**17**, 720–725 (2021), DOI 10.1038/s41567-021-01174-7, which
-introduced the spatially-varying constrained-relaxation workflow that
-Parts B and C demonstrate.
-
 Part B — Imposed uniform heterostrain via pinned XX' points
 ===========================================================
 A finite-mesh constrained relaxation that demonstrates how non-trivial
 elongated domain-wall structures emerge when the pinned stacking
 positions encode a uniform heterostrain.
 
-Setup: H-stacked MoSe2/WSe2 at θ = 0.5°, on a finite mesh covering
-several moiré cells (~5 × 5 cells, ~180 nm wide). We enumerate the
-natural XX' stacking sites of the unstrained moiré, then PIN those
-vertices to displacement targets `u(r) = ε · (r − r_c)` corresponding
-to a 1% uniaxial heterostrain about the cell centre. The relaxation
-finds the displacement field that satisfies these constraints while
-minimising elastic + GSFE energy. The result is the AB/BA triangular
-domain network elongated along the strain direction.
+Setup: H-stacked MoSe2/WSe2 (α_MoSe2 = 0.3288 nm, α_WSe2 = 0.3282 nm,
+intrinsic mismatch δ ≈ 0.18% — non-zero even at θ = 0) at θ = 0.5°,
+on a finite mesh covering ~5 × 5 moiré cells (~180 nm wide). We
+enumerate the natural high-symmetry sublattices of the unstrained
+moiré (XX' / MX' / MM', equivalently AA / AB / BA in the package's
+notation) and PIN those vertices to displacement targets
 
-Part C — Imposed twist gradient via pinned XX' points
-=====================================================
-Same mechanism as Part B, but instead of a uniform strain we impose a
-spatially-varying effective twist. The pinned displacement targets
-`u(r) = δθ(x) · J · (r − r_c)` (where `J = [[0,−1],[1,0]]` is the 2D
-rotation generator) correspond to a local twist that varies linearly
-from 0.1° at one edge of the cell to 0.7° at the other, around an
-average of 0.4°. The local moiré wavelength accordingly varies from
-~130 nm at the low-twist end to ~27 nm at the high-twist end. The
-mesh is rectangular (~10 cells along the gradient axis × ~3 cells
-perpendicular) so that the gradient region hosts many full moiré
-periods and isn't dominated by edge effects. The relaxation produces
-a non-uniform AB/BA pattern: dense small triangles where the local
-twist is large, sparse stretched ones where it's small — the
-hallmark of twist-angle disorder visible in real STM images of TMD
-heterobilayers.
+    u(r) = ε · (r − r_c)
+
+corresponding to a 1% uniaxial heterostrain ε = diag(ε_xx, 0) about
+the cell centre. The relaxation finds the displacement field that
+satisfies these constraints while minimising elastic + GSFE energy,
+producing AB/BA triangular domains visibly distorted (non-equilateral
+triangles) compared to the unstrained network.
+
+The matching experimental workflow is described in Shabani, Halbertal
+et al., *Deep moiré potentials in twisted transition metal
+dichalcogenide bilayers*, Nature Physics **17**, 720–725 (2021),
+DOI 10.1038/s41567-021-01174-7. There the authors identify XX' sites
+in an experimental STM topograph of an H-MoSe2/WSe2 sample (their
+Fig. 1g) and use a constrained continuum relaxation to compute the
+relaxed displacement field consistent with those identified points
+(their Fig. 1h). The synthetic example here uses the same package
+mechanism on a uniformly strained AA-lattice rather than on
+experimental data.
+
+A twist-gradient demo (linear local-twist variation pinned across a
+wider mesh) was prototyped on this branch but did not produce a
+visually clean gradient signal — the relaxation between sparse pins
+locked to discrete stacking minima and washed out the slow gradient.
+That direction needs a different mechanism (a denser pinning that
+controls the gradient field directly, not just point values) and is
+deferred to a follow-up.
 
 Outputs (saved to examples/output/):
     strain_extraction_sweep.png            — recovered θ, ε_c, ε_s vs Δφ
     strain_pinned_heterostrain.png         — Part B: uniform heterostrain
-    strain_pinned_twist_gradient.png       — Part C: linear twist gradient
 """
 
 from __future__ import annotations
@@ -101,29 +99,19 @@ DPHI_GRID = np.linspace(30.0, 90.0, 121)   # sweep Δφ around the unstrained 60
 # At α_TMD ≈ 0.328 nm and intrinsic mismatch δ ≈ 0.18%, θ = 0.5° gives
 # an effective angle √(δ² + θ²) ≈ 0.0089 and a moire wavelength of
 # ~37 nm. A 5x5-cell domain is ~185 nm — small enough to relax quickly,
-# wide enough that the 1% uniform heterostrain is visible across
-# several wavelengths.
+# wide enough that the heterostrain is visible across several
+# wavelengths.
+#
+# 1% uniaxial heterostrain visibly distorts the AB/BA triangular
+# network without driving it into the 1D shear-soliton regime that
+# higher strains (≥2%) produce on these TMD parameters: the
+# transition from "triangular but distorted" to "1D stripes" is
+# fairly sharp around 1.5–2% strain. Below 1% the network is
+# nearly indistinguishable from the unstrained one with the eye.
 THETA_B = 0.5            # degrees
 N_CELLS_B = 5
 PIXEL_SIZE_B = 3.0       # nm
 HETEROSTRAIN_EPS_B = 0.01     # 1% uniaxial heterostrain along x
-
-# --- Part C parameters: linear twist gradient on H-MoSe2/WSe2 -----------
-# The geometry uses the AVERAGE local twist as its reference; the
-# local twist varies linearly from THETA_C_MIN at x = x_min to
-# THETA_C_MAX at x = x_max. With a 0.18% intrinsic TMD mismatch, the
-# local moire wavelength varies from ~130 nm at θ=0.1° down to ~27 nm
-# at θ=0.7°. The mesh is RECTANGULAR — wide along the gradient axis
-# so we host ~10 average wavelengths there, narrow perpendicular.
-THETA_C_MIN = 0.1        # degrees, at x = x_min
-THETA_C_MAX = 0.7        # degrees, at x = x_max
-THETA_C_AVG = 0.5 * (THETA_C_MIN + THETA_C_MAX)   # 0.4°
-# At the average twist (0.4°): effective angle ≈ 0.00748,
-# λ_avg ≈ 0.328 / 0.00748 ≈ 43.9 nm. 10 cells along the gradient axis
-# is ~440 nm; 3 cells perpendicular is ~130 nm.
-N_CELLS_C_X = 10
-N_CELLS_C_Y = 3
-PIXEL_SIZE_C = 4.0       # nm — coarse so the relaxation is fast
 
 
 # =======================================================================
@@ -430,11 +418,18 @@ def part_b_uniform_heterostrain() -> None:
     print(f"  Mesh: {mesh.n_vertices} vertices, "
           f"{mesh.n_triangles} triangles  ({N_CELLS_B}x{N_CELLS_B} moire cells)")
 
-    # Natural XX' (== AA in the package's notation) positions and the
-    # centre of the mesh
-    aa_positions = _natural_aa_positions(geometry, mesh)
+    # Natural high-symmetry positions of the unstrained moire and
+    # the centre of the mesh. We pin all three sublattices (XX' /
+    # MX' / MM' = AA / AB / BA in the package's notation) to give the
+    # relaxation enough constraints to follow the imposed strain
+    # field cleanly.
+    aa_positions = np.concatenate([
+        _natural_high_symmetry_positions(geometry, mesh, sublattice=s)
+        for s in ("AA", "AB", "BA")
+    ])
     r_c = np.array([mesh.points[0].mean(), mesh.points[1].mean()])
-    print(f"  Natural XX' points inside mesh: {len(aa_positions)}")
+    print(f"  Natural high-symmetry points inside mesh "
+          f"(XX'+MX'+MM'): {len(aa_positions)}")
 
     # Uniaxial heterostrain ε along x
     eps = np.array([[HETEROSTRAIN_EPS_B, 0.0],
@@ -481,170 +476,10 @@ def part_b_uniform_heterostrain() -> None:
 
 
 # =======================================================================
-# Part C — Imposed twist gradient via pinned AA points
-# =======================================================================
-
-def part_c_twist_gradient() -> None:
-    """Pin natural XX' points of an H-MoSe2/WSe2 moire to a displacement
-    field consistent with a linearly-varying local twist angle.
-
-    The geometry uses the AVERAGE twist as its reference. The pinned
-    displacement target at position r is
-
-        u(r) = δθ(x) · J · (r − r_c)
-
-    where J = [[0, −1], [1, 0]] is the 2D rotation generator and
-    δθ(x) is the local deviation of the twist from the average:
-
-        δθ(x) = (θ_max − θ_min) · (x − x_c) / W      (in radians)
-
-    Equivalent to "rotate layer 2 about r_c by an extra δθ(x), at each
-    pinned site". The relaxation produces a non-uniform AB/BA pattern
-    with the moiré pattern compressed where δθ is positive (more twist,
-    smaller wavelength) and stretched where δθ is negative.
-
-    The mesh is rectangular: ~10 cells along the gradient axis (so the
-    spatially-varying pattern hosts many full moiré periods) and only
-    ~3 cells perpendicular to it.
-    """
-    print("\n=== Part C: imposed twist gradient (H-MoSe2/WSe2) ===")
-
-    lattice = HexagonalLattice(alpha=WSE2.lattice_constant)
-    geometry = MoireGeometry(
-        lattice, theta_twist=THETA_C_AVG,
-        delta=MOSE2.lattice_constant / WSE2.lattice_constant - 1.0,
-    )
-    mesh = generate_finite_mesh(
-        geometry, pixel_size=PIXEL_SIZE_C,
-        n_cells_x=N_CELLS_C_X, n_cells_y=N_CELLS_C_Y,
-    )
-    print(f"  H-MoSe2/WSe2  reference twist θ_avg = {THETA_C_AVG}°")
-    print(f"  Local twist range: {THETA_C_MIN}° → {THETA_C_MAX}°")
-    print(f"  Average moire wavelength: {geometry.wavelength:.2f} nm")
-    print(f"  Mesh: {mesh.n_vertices} vertices, {mesh.n_triangles} triangles  "
-          f"({N_CELLS_C_X} × {N_CELLS_C_Y} moire cells)")
-
-    # Pin all three high-symmetry sublattices (AA, AB, BA) so the
-    # relaxation has enough constraints to follow the smooth gradient
-    # field rather than wiggling around it. With only the AA sublattice
-    # pinned the optimizer is too free; with all three the relaxed local
-    # twist tracks the imposed gradient much more closely.
-    aa_positions = np.concatenate([
-        _natural_high_symmetry_positions(geometry, mesh, sublattice=s)
-        for s in ("AA", "AB", "BA")
-    ])
-    r_c = np.array([mesh.points[0].mean(), mesh.points[1].mean()])
-    print(f"  Natural high-symmetry points inside mesh "
-          f"(AA + AB + BA): {len(aa_positions)}")
-
-    # Determine which physical axis is the LONG axis of the mesh
-    # (the one that hosts ~10 moire cells of variation). We picked
-    # n_cells_x along V1 and n_cells_y along V2; for typical
-    # hexagonal moire geometries V1 is mostly aligned with y, so the
-    # long extent ends up along y. We pick the gradient axis at run
-    # time so the example stays correct if the geometry rotates.
-    span_x = mesh.points[0].max() - mesh.points[0].min()
-    span_y = mesh.points[1].max() - mesh.points[1].min()
-    if span_x >= span_y:
-        gradient_axis = 0  # gradient along x
-        W = span_x
-    else:
-        gradient_axis = 1  # gradient along y
-        W = span_y
-    print(f"  Mesh extent: {span_x:.1f} × {span_y:.1f} nm  "
-          f"→ gradient along {'x' if gradient_axis == 0 else 'y'}")
-
-    # Curvature κ of the twist gradient: the local rotation field
-    # ω(r) = (1/2)(∂u_y/∂x − ∂u_x/∂y) varies linearly along the gradient
-    # axis from −(THETA_C_MAX−THETA_C_MIN)/2 at one edge to +the same
-    # at the other, in radians. So κ = (THETA_C_MAX−THETA_C_MIN)/W rad/nm.
-    kappa = np.radians(THETA_C_MAX - THETA_C_MIN) / W
-
-    dx = aa_positions[:, 0] - r_c[0]
-    dy = aa_positions[:, 1] - r_c[1]
-
-    # Divergence-free displacement field that produces ω(r) = κ · grad_coord
-    # at each pinned point. Picking the solution with the OTHER displacement
-    # component zero keeps the field as simple as possible:
-    #   gradient along y  →  u_x = −κ y²,  u_y = 0
-    #   gradient along x  →  u_x = 0,      u_y = +κ x²
-    # Check (y-gradient case):
-    #   (1/2)(∂u_y/∂x − ∂u_x/∂y) = (1/2)(0 − (−2κy)) = κ·y ✓
-    if gradient_axis == 1:
-        ux_targets = -kappa * dy ** 2
-        uy_targets = np.zeros_like(dy)
-    else:
-        ux_targets = np.zeros_like(dx)
-        uy_targets = +kappa * dx ** 2
-    u_norm_max = float(np.sqrt(ux_targets ** 2 + uy_targets ** 2).max())
-    print(f"  Max |u_target| at pinned points: {u_norm_max * 1000:.2f} pm")
-
-    vertex_indices = _nearest_vertex_indices(mesh, aa_positions)
-
-    disc = Discretization(mesh, geometry)
-    conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=1)
-    constraints = _build_displacement_pins(
-        conv, vertex_indices, ux_targets, uy_targets,
-    )
-    print(f"  Pinned DOFs: {len(constraints.pinned_indices)} of {constraints.n_full}")
-
-    cfg = SolverConfig(
-        method="L-BFGS-B", pixel_size=PIXEL_SIZE_C, max_iter=600,
-        gtol=1e-5, display=False,
-    )
-    print("  Running L-BFGS-B relaxation...")
-    t0 = perf_counter()
-    result = RelaxationSolver(cfg).solve(
-        material1=MOSE2, material2=WSE2, theta_twist=THETA_C_AVG,
-        mesh=mesh, constraints=constraints,
-    )
-    print(f"  Done in {perf_counter() - t0:.2f} s")
-    print(f"  Energy reduction: {100 * result.energy_reduction:.1f}%")
-
-    # Sanity check: the relaxed local twist should span roughly
-    # [THETA_C_MIN, THETA_C_MAX] across the cell. We also look at the
-    # average over horizontal stripes (constant gradient_coord) to
-    # separate the slow gradient signal from high-frequency wiggles
-    # introduced by the GSFE preferring discrete stacking minima.
-    local_twist = result.local_twist(stack=1, layer=0)
-    print(f"  Relaxed local twist range (per vertex): "
-          f"{local_twist.min():.3f}° → {local_twist.max():.3f}°  "
-          f"(target: {THETA_C_MIN}° → {THETA_C_MAX}°)")
-    coord = mesh.points[gradient_axis]
-    bin_edges = np.linspace(coord.min(), coord.max(), 11)
-    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-    bin_means = np.array([
-        local_twist[(coord >= lo) & (coord < hi)].mean()
-        for lo, hi in zip(bin_edges[:-1], bin_edges[1:])
-    ])
-    print(f"  Binned mean local twist ({'y' if gradient_axis == 1 else 'x'}-stripes):")
-    for c, m in zip(bin_centers, bin_means):
-        print(f"    {'y' if gradient_axis == 1 else 'x'}={c:7.1f} nm  →  "
-              f"<θ_local> = {m:.3f}°")
-
-    # Clip the local-twist colour scale to the imposed range so the
-    # smooth gradient signal is visible above the high-frequency
-    # noise that the GSFE preference for discrete stacking minima
-    # introduces between the pinned points (the binned-mean diagnostic
-    # above shows the gradient is correctly imposed in the bulk).
-    _plot_pinned_relaxation(
-        mesh, geometry, result, vertex_indices, MOSE2,
-        title=(f"Pinned H-MoSe2/WSe2 relaxation with linear twist gradient "
-               f"({THETA_C_MIN}° → {THETA_C_MAX}° across the cell)\n"
-               f"XX'/MX'/MM' points pinned to a divergence-free rotation field "
-               f"u(r) = (−κy², 0)"),
-        out_path=OUT_DIR / "strain_pinned_twist_gradient.png",
-        show_local_twist=True,
-        local_twist_range=(THETA_C_MIN, THETA_C_MAX),
-    )
-
-
-# =======================================================================
 
 def main() -> None:
     part_a_strain_sweep()
     part_b_uniform_heterostrain()
-    part_c_twist_gradient()
 
 
 if __name__ == "__main__":
