@@ -6,6 +6,39 @@ import pytest
 from moire_metrology import RelaxationSolver, SolverConfig, GRAPHENE
 
 
+class TestPseudoDynamics:
+    """Tests for the implicit pseudo-time-stepping solver."""
+
+    def test_matches_newton_on_small_bilayer(self):
+        """pseudo_dynamics and newton should agree on energy for a small bilayer."""
+        # Small mesh + moderate twist so both solvers run in <5s.
+        common = dict(pixel_size=1.5, max_iter=80, gtol=1e-3,
+                      display=False, min_mesh_points=30)
+
+        cfg_newton = SolverConfig(method="newton", **common)
+        res_newton = RelaxationSolver(cfg_newton).solve(
+            material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+        )
+
+        cfg_pd = SolverConfig(method="pseudo_dynamics", **common)
+        res_pd = RelaxationSolver(cfg_pd).solve(
+            material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+        )
+
+        # Both should reduce energy from the unrelaxed state.
+        assert res_newton.total_energy < res_newton.unrelaxed_energy
+        assert res_pd.total_energy < res_pd.unrelaxed_energy
+
+        # And they should agree on the relaxed energy to within 1% — they
+        # are converging to the same physical minimum, just via different
+        # iteration schedules.
+        rel_diff = abs(res_pd.total_energy - res_newton.total_energy) / abs(res_newton.total_energy)
+        assert rel_diff < 0.01, (
+            f"pseudo_dynamics E={res_pd.total_energy:.2f} disagrees with "
+            f"newton E={res_newton.total_energy:.2f} (rel diff {rel_diff:.3%})"
+        )
+
+
 class TestSolverBasic:
     @pytest.mark.slow
     def test_solve_tblg_2deg(self):
