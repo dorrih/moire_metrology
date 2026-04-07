@@ -5,19 +5,24 @@ build-backend = "hatchling.build"
 [project]
 name = "moire-metrology"
 version = "0.1.0"
-description = "Atomic relaxation and strain extraction for twisted 2D van der Waals heterostructures"
+description = "Atomic relaxation, strain extraction, and multi-layer analysis for twisted 2D van der Waals heterostructures"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
     {name = "Dorri Halbertal"},
 ]
-keywords = ["moire", "relaxation", "van-der-waals", "heterostructure", "twistronics", "strain"]
+keywords = ["moire", "relaxation", "van-der-waals", "heterostructure", "twistronics", "strain", "graphene", "hbn"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "Topic :: Scientific/Engineering :: Physics",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
     "numpy>=1.24",
@@ -25,8 +30,13 @@ dependencies = [
     "matplotlib>=3.6",
 ]
 
+[project.urls]
+Homepage = "https://github.com/dorrih/moire_metrology"
+Repository = "https://github.com/dorrih/moire_metrology"
+Issues = "https://github.com/dorrih/moire_metrology/issues"
+
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "ruff"]
+dev = ["pytest", "pytest-cov", "ruff", "build"]
 meshpy = ["meshpy"]
 
 [tool.hatch.build.targets.wheel]

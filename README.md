@@ -1,6 +1,6 @@
 # moire-metrology
 
-[![tests](https://img.shields.io/badge/tests-71%20passing-brightgreen)](#testing)
+[![ci](https://github.com/dorrih/moire_metrology/actions/workflows/ci.yml/badge.svg)](https://github.com/dorrih/moire_metrology/actions/workflows/ci.yml)
 [![status](https://img.shields.io/badge/status-alpha-orange)](#status)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](#)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
