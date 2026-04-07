@@ -210,13 +210,12 @@ if you use this package in published work, please cite the relevant paper(s).
    *ACS Nano* **16**, 1471–1476 (2022).
    [doi:10.1021/acsnano.1c09789](https://doi.org/10.1021/acsnano.1c09789)
 
-4. Shabani, S., Halbertal, D. *et al.* **Deep moiré potentials in twisted
-   transition metal dichalcogenide bilayers.** *Nat. Phys.* (2021).
-   [arXiv:2008.07696](https://arxiv.org/abs/2008.07696)
-   <!-- TODO: fill in volume / pages / DOI -->
-
-I have NOT verified the *Nat. Phys.* volume / page numbers; please check
-the entry above before relying on it for citation.
+4. Shabani, S., Halbertal, D., Wu, W., Chen, M., Liu, S., Hone, J.,
+   Yao, W., Basov, D. N., Zhu, X. & Pasupathy, A. N. **Deep moiré
+   potentials in twisted transition metal dichalcogenide bilayers.**
+   *Nature Physics* **17**, 720–725 (2021).
+   [doi:10.1038/s41567-021-01174-7](https://www.nature.com/articles/s41567-021-01174-7)
+   · [arXiv:2008.07696](https://arxiv.org/abs/2008.07696)
 
 ## License
 
