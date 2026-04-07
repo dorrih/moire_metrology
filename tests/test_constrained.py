@@ -220,3 +220,121 @@ class TestFiniteMesh:
         assert mesh.n_triangles > 0
         # Non-periodic: all triangle indices should be within bounds
         assert np.all(mesh.triangles < mesh.n_vertices)
+        # And the mesh must advertise itself as non-periodic so the
+        # discretization skips the lattice-vector wrap correction.
+        assert mesh.is_periodic is False
+
+    def test_periodic_mesh_default_is_periodic(self):
+        """The standard MoireMesh.generate output is still periodic."""
+        from moire_metrology.mesh import MoireMesh
+        lat = HexagonalLattice(alpha=0.247)
+        geom = MoireGeometry(lat, theta_twist=2.0)
+        mesh = MoireMesh.generate(geom, pixel_size=1.0, min_points=20)
+        assert mesh.is_periodic is True
+
+    def test_diff_matrices_exact_on_linear_field_finite(self):
+        """On a finite mesh, the FEM diff matrices must reproduce a linear
+        field's analytic derivative exactly, at every triangle (no
+        spurious wrap-around correction).
+        """
+        lat = HexagonalLattice(alpha=0.247)
+        geom = MoireGeometry(lat, theta_twist=2.0)
+        mesh = generate_finite_mesh(geom, n_cells=2, pixel_size=1.0)
+        disc = PeriodicDiscretization(mesh, geom)
+
+        # Linear field f = a*x + b*y has constant df/dx = a, df/dy = b
+        a, b = 0.7, -0.3
+        x = mesh.points[0]
+        y = mesh.points[1]
+        f = a * x + b * y
+
+        dfx = disc.diff_mat_x @ f
+        dfy = disc.diff_mat_y @ f
+
+        # Every triangle should give the analytic derivative to machine precision
+        np.testing.assert_allclose(dfx, a, atol=1e-10)
+        np.testing.assert_allclose(dfy, b, atol=1e-10)
+
+
+class TestFiniteMeshRelaxation:
+    """Round-trip tests for the new finite-mesh + point-pinning workflow.
+
+    These verify that RelaxationSolver.solve() accepts a pre-built finite
+    mesh and that pins built via PinningMap on that mesh are honoured by
+    the solver. This is the spatially-varying-strain capability used to
+    work out post-relaxation maps from experimentally-identified pinned
+    stacking sites.
+    """
+
+    def _build_finite_setup(self, n_cells=2, pixel_size=1.0, theta=2.0):
+        from moire_metrology.discretization import PeriodicDiscretization
+        from moire_metrology.lattice import HexagonalLattice, MoireGeometry
+        from moire_metrology.mesh import generate_finite_mesh
+        lat = HexagonalLattice(alpha=TBLG.lattice_constant)
+        geom = MoireGeometry(lat, theta_twist=theta)
+        mesh = generate_finite_mesh(geom, n_cells=n_cells, pixel_size=pixel_size)
+        disc = PeriodicDiscretization(mesh, geom)
+        conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=1)
+        return mesh, geom, disc, conv
+
+    def test_finite_mesh_with_point_pins_solves(self):
+        """End-to-end: build finite mesh, pin two interior points to AB and
+        BA, run the relaxation, verify it converges and the pinned vertices
+        actually carry the pinned displacement.
+        """
+        mesh, geom, disc, conv = self._build_finite_setup()
+        pins = PinningMap(mesh, geom)
+        cx = float(np.mean(mesh.points[0]))
+        cy = float(np.mean(mesh.points[1]))
+        pins.pin_stacking(x=cx - 3.0, y=cy, stacking="AB", radius=1.0)
+        pins.pin_stacking(x=cx + 3.0, y=cy, stacking="BA", radius=1.0)
+        constraints = pins.build_constraints(conv, nlayer1=1, nlayer2=1)
+        assert constraints.n_free < constraints.n_full
+
+        cfg = SolverConfig(
+            method="L-BFGS-B", pixel_size=1.0, max_iter=200,
+            gtol=1e-4, display=False,
+        )
+        result = RelaxationSolver(cfg).solve(
+            material1=TBLG, material2=TBLG, theta_twist=2.0,
+            mesh=mesh, constraints=constraints,
+        )
+
+        # Energy must drop from the rigid configuration
+        assert result.total_energy < result.unrelaxed_energy
+
+        # Pinned DOFs in the relaxed solution must equal the requested values
+        full_solution = constraints.expand(
+            constraints.project(result.solution_vector)
+        )
+        pinned_actual = full_solution[constraints.pinned_indices]
+        np.testing.assert_allclose(
+            pinned_actual, constraints.pinned_values, atol=1e-12,
+            err_msg="pinned DOFs drifted from their target values",
+        )
+
+    def test_solver_accepts_external_mesh(self):
+        """Passing mesh=... bypasses the internal MoireMesh.generate() path."""
+        mesh, geom, disc, conv = self._build_finite_setup()
+        # Run with an explicit mesh, no constraints — should still relax
+        # to the trivial U=0 solution because the unrelaxed state is
+        # the unconstrained energy minimum modulo rigid translations.
+        cfg = SolverConfig(
+            method="L-BFGS-B", pixel_size=1.0, max_iter=50,
+            gtol=1e-3, display=False,
+        )
+        # Need at least one pin to remove rigid-body modes
+        pins = PinningMap(mesh, geom)
+        cx = float(np.mean(mesh.points[0]))
+        cy = float(np.mean(mesh.points[1]))
+        pins.pin_stacking(x=cx, y=cy, stacking="AB", radius=1.0)
+        constraints = pins.build_constraints(conv, nlayer1=1, nlayer2=1)
+
+        result = RelaxationSolver(cfg).solve(
+            material1=TBLG, material2=TBLG, theta_twist=2.0,
+            mesh=mesh, constraints=constraints,
+        )
+        # Verify the result mesh IS the one we passed in
+        assert result.mesh is mesh
+        assert result.mesh.is_periodic is False
+        assert result.total_energy < result.unrelaxed_energy

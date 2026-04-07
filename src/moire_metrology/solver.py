@@ -479,6 +479,7 @@ class RelaxationSolver:
         constraints: "PinnedConstraints | None" = None,
         fix_top: bool = False,
         fix_bottom: bool = False,
+        mesh: MoireMesh | None = None,
     ) -> RelaxationResult:
         """Solve the relaxation problem.
 
@@ -509,6 +510,15 @@ class RelaxationSolver:
             to zero. Use this to clamp the substrate's free surface and
             approximate a semi-infinite bottom — typical for simulating a
             twisted flake on a thick substrate (e.g. graphene on graphite).
+        mesh : MoireMesh or None
+            Pre-built mesh to use. If None (default), the solver builds a
+            periodic moire-cell mesh from the SolverConfig parameters
+            (pixel_size, n_scale, min_mesh_points). Pass a mesh built via
+            ``moire_metrology.mesh.generate_finite_mesh`` (or any other
+            MoireMesh constructor) to relax on a finite, non-periodic
+            domain — typically combined with ``constraints`` from
+            ``PinningMap.build_constraints`` to pin selected stacking
+            sites in the experimental image.
         """
         cfg = self.config
 
@@ -522,14 +532,17 @@ class RelaxationSolver:
             print(f"Moire wavelength: {geometry.wavelength:.2f} nm")
             print(f"Twist angle: {theta_twist:.4f} deg, delta: {delta:.6f}")
 
-        mesh = MoireMesh.generate(
-            geometry,
-            pixel_size=cfg.pixel_size,
-            n_scale=cfg.n_scale,
-            min_points=cfg.min_mesh_points,
-        )
+        if mesh is None:
+            mesh = MoireMesh.generate(
+                geometry,
+                pixel_size=cfg.pixel_size,
+                n_scale=cfg.n_scale,
+                min_points=cfg.min_mesh_points,
+            )
         if cfg.display:
-            print(f"Mesh: {mesh.n_vertices} vertices, {mesh.n_triangles} triangles")
+            kind = "periodic" if mesh.is_periodic else "finite"
+            print(f"Mesh: {mesh.n_vertices} vertices, "
+                  f"{mesh.n_triangles} triangles ({kind})")
 
         disc = PeriodicDiscretization(mesh, geometry)
         conv = disc.build_conversion_matrices(nlayer1=nlayer1, nlayer2=nlayer2)

@@ -15,7 +15,7 @@ from .lattice import MoireGeometry
 
 @dataclass
 class MoireMesh:
-    """Triangular mesh on a moire unit cell parallelogram.
+    """Triangular mesh on a moire unit cell parallelogram (or finite domain).
 
     Attributes
     ----------
@@ -24,13 +24,19 @@ class MoireMesh:
     triangles : ndarray, shape (Nt, 3)
         Triangle connectivity (vertex indices).
     V1, V2 : ndarray, shape (2,)
-        Parallelogram edge vectors in nm.
+        Parallelogram edge vectors in nm. For a periodic mesh these are
+        the moire lattice vectors. For a finite mesh they describe the
+        bounding parallelogram of the domain (used by some plotting helpers).
     ns, nt : int
         Number of grid divisions along V1 and V2.
-    boundary_edges : list of dict
-        Each entry describes one parallelogram edge with keys:
-        'vertices' (array of vertex indices), 'direction' ('s' or 't'),
-        'value' (0.0 or 1.0).
+    is_periodic : bool
+        True if the triangulation uses periodic wrap-around connectivity
+        (the default, produced by ``MoireMesh.generate``). False if the
+        mesh covers a finite domain with open boundaries (produced by
+        ``generate_finite_mesh``). The discretization uses this flag to
+        decide whether to apply lattice-vector wrap corrections to
+        relative vertex positions when assembling differentiation
+        matrices: periodic meshes need them, finite meshes don't.
     """
 
     points: np.ndarray
@@ -40,6 +46,7 @@ class MoireMesh:
     ns: int
     nt: int
     n_scale: int
+    is_periodic: bool = True
     _boundary_info: dict | None = None
 
     @property
@@ -223,6 +230,7 @@ def generate_finite_mesh(
         ns=ns + 1,
         nt=nt + 1,
         n_scale=n_cells,
+        is_periodic=False,
     )
 
 
