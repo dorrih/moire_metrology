@@ -38,6 +38,80 @@ class TestPseudoDynamics:
             f"newton E={res_newton.total_energy:.2f} (rel diff {rel_diff:.3%})"
         )
 
+    def test_iterative_matches_direct(self):
+        """linear_solver='iterative' should give the same answer as 'direct'.
+
+        The iterative path uses matrix-free preconditioned MINRES against
+        energy_func.hessp(), while the direct path builds the sparse
+        Hessian and calls spsolve. Both should converge to the same
+        relaxed energy on a small test case.
+        """
+        common = dict(method="pseudo_dynamics", pixel_size=1.5, max_iter=80,
+                      gtol=1e-3, display=False, min_mesh_points=30)
+
+        cfg_direct = SolverConfig(linear_solver="direct", **common)
+        res_direct = RelaxationSolver(cfg_direct).solve(
+            material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+        )
+
+        cfg_iter = SolverConfig(linear_solver="iterative", **common)
+        res_iter = RelaxationSolver(cfg_iter).solve(
+            material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+        )
+
+        # Both should reduce energy from the unrelaxed state.
+        assert res_direct.total_energy < res_direct.unrelaxed_energy
+        assert res_iter.total_energy < res_iter.unrelaxed_energy
+
+        # And they should agree to high precision — same algorithm, same
+        # iteration schedule, only the inner linear solve differs. The
+        # MINRES tolerance is 1e-6, so we allow a relative diff of 1e-4
+        # to account for accumulated round-off across the outer iterations.
+        rel_diff = abs(res_iter.total_energy - res_direct.total_energy) / abs(res_direct.total_energy)
+        assert rel_diff < 1e-4, (
+            f"iterative E={res_iter.total_energy:.6f} disagrees with "
+            f"direct E={res_direct.total_energy:.6f} (rel diff {rel_diff:.3e})"
+        )
+
+    def test_iterative_with_constraints(self):
+        """The iterative solver path must work with PinnedConstraints too.
+
+        This is a smoke test that the matrix-free hessp + Jacobi
+        preconditioner correctly project to the free-DOF space when
+        constraints are present.
+        """
+        cfg = SolverConfig(
+            method="pseudo_dynamics", linear_solver="iterative",
+            pixel_size=1.5, max_iter=60, gtol=1e-3,
+            display=False, min_mesh_points=30,
+        )
+        # Use fix_bottom on a tiny multilayer — this exercises both the
+        # iterative solver and the constraint-aware hessp path.
+        from moire_metrology.multilayer import LayerStack
+        stack = LayerStack(
+            top=GRAPHENE, n_top=1, bottom=GRAPHENE, n_bottom=2, theta_twist=2.0,
+        )
+        result = stack.solve(cfg, fix_bottom=True)
+
+        # The clamped layer is exactly zero
+        assert np.allclose(result.displacement_x2[-1], 0.0, atol=1e-12)
+        assert np.allclose(result.displacement_y2[-1], 0.0, atol=1e-12)
+        # Free layers relax
+        assert result.total_energy < result.unrelaxed_energy
+        free_max = float(np.abs(result.displacement_x2[0]).max())
+        assert free_max > 0.0
+
+    def test_invalid_linear_solver_raises(self):
+        cfg = SolverConfig(
+            method="pseudo_dynamics", linear_solver="not_a_thing",
+            pixel_size=1.5, max_iter=10, gtol=1e-3,
+            display=False, min_mesh_points=30,
+        )
+        with pytest.raises(ValueError, match="Unknown linear_solver"):
+            RelaxationSolver(cfg).solve(
+                material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+            )
+
 
 class TestSolverBasic:
     @pytest.mark.slow
