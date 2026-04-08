@@ -96,7 +96,6 @@ without re-solving.
 
 ```python
 from moire_metrology.strain import get_strain_minimize_compression
-from moire_metrology.strain.extraction import shear_strain_invariant
 
 # Observed moire vectors (lengths in nm, angles in degrees)
 result = get_strain_minimize_compression(
@@ -106,11 +105,7 @@ result = get_strain_minimize_compression(
 )
 print(f"twist:           {result.theta_twist:.4f} deg")
 print(f"compression ε_c: {result.eps_c:.2e}")
-
-# For the shear strain ε_s, prefer the closed-form invariant helper
-# (the result.eps_s field has a known φ₀-dependence bug; see issues).
-eps_s = shear_strain_invariant(0.247, 0.247, 10.0, 10.0, 0.0, 60.0)
-print(f"shear ε_s:       {eps_s:.2e}")
+print(f"shear ε_s:       {result.eps_s:.2e}")
 ```
 
 For a complete worked example sweeping `Δφ` and reproducing
