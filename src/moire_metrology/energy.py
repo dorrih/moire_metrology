@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import sparse
 
-from .discretization import ConversionMatrices, PeriodicDiscretization, PinnedConstraints
+from .discretization import ConversionMatrices, Discretization, PinnedConstraints
 from .gsfe import GSFESurface
 from .lattice import MoireGeometry
 
@@ -48,7 +48,7 @@ class RelaxationEnergy:
 
     def __init__(
         self,
-        disc: PeriodicDiscretization,
+        disc: Discretization,
         conv: ConversionMatrices,
         geometry: MoireGeometry,
         gsfe_interface: GSFESurface,

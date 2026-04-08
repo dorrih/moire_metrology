@@ -11,7 +11,7 @@ Example:
     from moire_metrology import GRAPHENE, RelaxationSolver, SolverConfig
     from moire_metrology.lattice import HexagonalLattice, MoireGeometry
     from moire_metrology.mesh import MoireMesh
-    from moire_metrology.discretization import PeriodicDiscretization
+    from moire_metrology.discretization import Discretization
 
     geometry = MoireGeometry(HexagonalLattice(0.247), theta_twist=0.5)
     mesh = MoireMesh.generate(geometry, pixel_size=0.5)
@@ -20,7 +20,7 @@ Example:
     pins.pin_stacking(x=10.0, y=20.0, stacking="AB", radius=3.0)
     pins.pin_stacking(x=30.0, y=15.0, stacking="BA", radius=3.0)
 
-    disc = PeriodicDiscretization(mesh, geometry)
+    disc = Discretization(mesh, geometry)
     conv = disc.build_conversion_matrices()
     constraints = pins.build_constraints(conv)
 

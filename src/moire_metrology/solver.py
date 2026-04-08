@@ -22,7 +22,7 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.sparse.linalg import spsolve
 
-from .discretization import PeriodicDiscretization
+from .discretization import Discretization
 from .energy import RelaxationEnergy
 from .gsfe import GSFESurface
 from .lattice import HexagonalLattice, MoireGeometry
@@ -544,7 +544,7 @@ class RelaxationSolver:
             print(f"Mesh: {mesh.n_vertices} vertices, "
                   f"{mesh.n_triangles} triangles ({kind})")
 
-        disc = PeriodicDiscretization(mesh, geometry)
+        disc = Discretization(mesh, geometry)
         conv = disc.build_conversion_matrices(nlayer1=nlayer1, nlayer2=nlayer2)
 
         # Outer-layer clamps build a PinnedConstraints automatically.
