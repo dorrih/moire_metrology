@@ -70,12 +70,11 @@ Requires Python 3.10+. The package depends on `numpy`, `scipy`, and
 ## Quick start
 
 ```python
-from moire_metrology import GRAPHENE, RelaxationSolver, SolverConfig
+from moire_metrology import GRAPHENE_GRAPHENE, RelaxationSolver, SolverConfig
 
 solver = RelaxationSolver(SolverConfig(pixel_size=1.0, max_iter=200))
 result = solver.solve(
-    material1=GRAPHENE,
-    material2=GRAPHENE,
+    moire_interface=GRAPHENE_GRAPHENE,
     theta_twist=1.05,  # degrees
 )
 
@@ -143,7 +142,7 @@ constraints = pins.build_constraints(conv)
 
 # Run the relaxation on the finite mesh with the pin constraints
 result = RelaxationSolver(SolverConfig(method="L-BFGS-B")).solve(
-    material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+    moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
     mesh=mesh, constraints=constraints,
 )
 ```
@@ -158,16 +157,59 @@ end-to-end version.
 ### Multi-layer stack
 
 ```python
-from moire_metrology import GRAPHENE, SolverConfig
+from moire_metrology import GRAPHENE_GRAPHENE, SolverConfig
 from moire_metrology.multilayer import LayerStack
 
 stack = LayerStack(
-    top=GRAPHENE, n_top=1,
-    bottom=GRAPHENE, n_bottom=2,
+    moire_interface=GRAPHENE_GRAPHENE,
+    bottom_interface=GRAPHENE_GRAPHENE,  # required because n_bottom > 1
+    n_top=1, n_bottom=2,
     theta_twist=1.5,
 )
 result = stack.solve(SolverConfig(method="L-BFGS-B", pixel_size=1.0))
 ```
+
+### Custom materials and interfaces
+
+GSFE is a property of the *interface* between two adjacent layers, not
+of either material individually. To use a material that isn't bundled,
+or to specify a heterointerface that isn't covered by
+[`moire_metrology.interfaces.BUNDLED_INTERFACES`](src/moire_metrology/interfaces.py),
+construct a `Material` and an `Interface` directly:
+
+```python
+from moire_metrology import Interface, Material, RelaxationSolver, SolverConfig
+
+# Hypothetical custom material — only needs name, lattice constant,
+# and the per-layer 2D elastic moduli (meV/unit cell).
+my_material = Material(
+    name="MyTMD",
+    lattice_constant=0.330,
+    bulk_modulus=42000.0,
+    shear_modulus=28000.0,
+)
+
+# Pair it with an existing or another custom material via an Interface.
+# The GSFE Fourier coefficients (c0, c1, c2, c3, c4, c5) are in the
+# Carr basis, meV/unit cell. For homobilayers c4 = c5 = 0; for
+# heterointerfaces with broken inversion symmetry they are non-zero.
+my_interface = Interface(
+    name="MyTMD/MyTMD",
+    bottom=my_material,
+    top=my_material,
+    gsfe_coeffs=(45.0, 17.0, -3.0, -1.2, 0.0, 0.0),
+    reference="Smith et al., Made-up Journal 1, 1 (2026)",
+)
+
+result = RelaxationSolver(SolverConfig()).solve(
+    moire_interface=my_interface, theta_twist=1.5,
+)
+```
+
+For multi-layer flakes built from your custom material, also construct
+a homobilayer interface and pass it as `top_interface=` / `bottom_interface=`
+on `LayerStack` or `solve()`. The bundled `moire_metrology.interfaces`
+module is a good template for what fields each entry needs.
 
 ## Testing
 

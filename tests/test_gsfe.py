@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 
 from moire_metrology.gsfe import GSFESurface
-from moire_metrology.materials import GRAPHENE
+from moire_metrology.interfaces import GRAPHENE_GRAPHENE
 
 
 @pytest.fixture
 def graphene_gsfe():
-    return GSFESurface(GRAPHENE.gsfe_coeffs)
+    return GSFESurface(GRAPHENE_GRAPHENE.gsfe_coeffs)
 
 
 class TestGSFEValues:

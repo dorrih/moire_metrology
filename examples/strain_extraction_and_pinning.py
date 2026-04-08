@@ -75,7 +75,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from moire_metrology import (
-    GRAPHENE, MOSE2, WSE2, RelaxationSolver, SolverConfig,
+    GRAPHENE, MOSE2, MOSE2_WSE2_H_INTERFACE, WSE2,
+    RelaxationSolver, SolverConfig,
 )
 from moire_metrology.discretization import Discretization, PinnedConstraints
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
@@ -302,7 +303,7 @@ def _build_displacement_pins(conv, vertex_indices: np.ndarray,
 
 
 def _plot_pinned_relaxation(mesh, geometry, result, pinned_vertex_indices,
-                            interface_material, *,
+                            interface, *,
                             title: str, out_path: Path,
                             show_local_twist: bool = False,
                             local_twist_range: tuple[float, float] | None = None,
@@ -320,7 +321,7 @@ def _plot_pinned_relaxation(mesh, geometry, result, pinned_vertex_indices,
 
     x = mesh.points[0]
     y = mesh.points[1]
-    gsfe = GSFESurface(interface_material.gsfe_coeffs)
+    gsfe = GSFESurface(interface.gsfe_coeffs)
     v0, w0 = geometry.stacking_phases(x, y)
     g_unrelaxed = gsfe(v0, w0)
     g_relaxed = result.gsfe_map
@@ -390,10 +391,10 @@ def part_b_uniform_heterostrain() -> None:
     """
     print("\n=== Part B: imposed uniform heterostrain (H-MoSe2/WSe2) ===")
 
-    # Lattice/geometry: use the average of the two TMD lattice constants
-    # for the substrate-side reference; the package's solver computes
-    # the lattice mismatch from material1 / material2 lattice constants
-    # automatically.
+    # Lattice/geometry: use the WSe2 lattice constant as the substrate
+    # reference (the bottom material of the H-stacked interface); the
+    # solver derives the lattice mismatch automatically from the
+    # interface materials.
     lattice = HexagonalLattice(alpha=WSE2.lattice_constant)
     geometry = MoireGeometry(
         lattice, theta_twist=THETA_B,
@@ -449,14 +450,14 @@ def part_b_uniform_heterostrain() -> None:
     print("  Running L-BFGS-B relaxation...")
     t0 = perf_counter()
     result = RelaxationSolver(cfg).solve(
-        material1=MOSE2, material2=WSE2, theta_twist=THETA_B,
+        moire_interface=MOSE2_WSE2_H_INTERFACE, theta_twist=THETA_B,
         mesh=mesh, constraints=constraints,
     )
     print(f"  Done in {perf_counter() - t0:.2f} s")
     print(f"  Energy reduction: {100 * result.energy_reduction:.1f}%")
 
     _plot_pinned_relaxation(
-        mesh, geometry, result, vertex_indices, MOSE2,
+        mesh, geometry, result, vertex_indices, MOSE2_WSE2_H_INTERFACE,
         title=(f"Pinned H-MoSe2/WSe2 relaxation, "
                f"{100 * HETEROSTRAIN_EPS_B:.1f}% uniaxial heterostrain "
                f"(θ = {THETA_B}°)\n"

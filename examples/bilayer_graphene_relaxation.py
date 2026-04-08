@@ -36,7 +36,7 @@ from time import perf_counter
 import matplotlib.pyplot as plt
 import numpy as np
 
-from moire_metrology import GRAPHENE, RelaxationSolver, SolverConfig
+from moire_metrology import GRAPHENE_GRAPHENE, RelaxationSolver, SolverConfig
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 from moire_metrology.mesh import MoireMesh
 from moire_metrology.result import RelaxationResult
@@ -84,7 +84,9 @@ def _load_cached_result() -> RelaxationResult | None:
 
     return RelaxationResult(
         mesh=mesh, geometry=geometry,
-        material1=GRAPHENE, material2=GRAPHENE,
+        moire_interface=GRAPHENE_GRAPHENE,
+        top_interface=None,
+        bottom_interface=None,
         displacement_x1=data["displacement_x1"],
         displacement_y1=data["displacement_y1"],
         displacement_x2=data["displacement_x2"],
@@ -117,8 +119,7 @@ def _solve() -> RelaxationResult:
     solver = RelaxationSolver(config)
     print(f"=== Twisted bilayer graphene, θ = {THETA_TWIST}° ===\n")
     result = solver.solve(
-        material1=GRAPHENE,
-        material2=GRAPHENE,
+        moire_interface=GRAPHENE_GRAPHENE,
         theta_twist=THETA_TWIST,
     )
     return result

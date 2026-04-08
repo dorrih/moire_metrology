@@ -1,12 +1,12 @@
 """High-level solver API for moire relaxation.
 
 Typical usage:
-    from moire_metrology import RelaxationSolver, GRAPHENE
+    from moire_metrology import RelaxationSolver
+    from moire_metrology.interfaces import GRAPHENE_GRAPHENE
 
     solver = RelaxationSolver()
     result = solver.solve(
-        material1=GRAPHENE,
-        material2=GRAPHENE,
+        moire_interface=GRAPHENE_GRAPHENE,
         theta_twist=2.0,
     )
     result.plot_stacking()
@@ -25,8 +25,8 @@ from scipy.sparse.linalg import spsolve
 from .discretization import Discretization
 from .energy import RelaxationEnergy
 from .gsfe import GSFESurface
+from .interfaces import Interface
 from .lattice import HexagonalLattice, MoireGeometry
-from .materials import Material
 from .mesh import MoireMesh
 from .result import RelaxationResult
 
@@ -460,6 +460,85 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     }
 
 
+_LEGACY_KWARGS = {"material1", "material2", "nlayer1", "nlayer2"}
+
+
+def _raise_legacy_kwargs(kwargs: dict) -> None:
+    """Friendly redirect for code calling the v0.1.0 solve() signature."""
+    leftover = set(kwargs) - _LEGACY_KWARGS
+    if leftover:
+        # Truly unknown kwargs — let Python raise its normal TypeError.
+        raise TypeError(
+            f"RelaxationSolver.solve() got unexpected keyword argument(s): {sorted(leftover)}"
+        )
+    raise TypeError(
+        "RelaxationSolver.solve() no longer takes material1/material2/nlayer1/nlayer2 "
+        "in v0.2.0. GSFE has moved off Material and onto Interface. Replace:\n"
+        "    solver.solve(material1=GRAPHENE, material2=GRAPHENE, theta_twist=1.05)\n"
+        "with:\n"
+        "    from moire_metrology.interfaces import GRAPHENE_GRAPHENE\n"
+        "    solver.solve(moire_interface=GRAPHENE_GRAPHENE, theta_twist=1.05)\n"
+        "For multi-layer flakes, also pass top_interface= and/or bottom_interface= "
+        "and use n_top= / n_bottom= instead of nlayer1= / nlayer2=. See CHANGELOG.md "
+        "for the full migration."
+    )
+
+
+def _validate_flake_interfaces(
+    moire_interface: Interface,
+    top_interface: Interface | None,
+    bottom_interface: Interface | None,
+    n_top: int,
+    n_bottom: int,
+) -> None:
+    """Sanity-check that the supplied interfaces are coherent with the flake sizes.
+
+    Catches common mistakes at the API boundary instead of producing a
+    confusing error 200 lines into the energy assembler.
+    """
+    if n_top > 1:
+        if top_interface is None:
+            raise ValueError(
+                f"n_top={n_top} requires a `top_interface=` (the homobilayer "
+                f"interface inside the top flake). For a {moire_interface.top.name} "
+                f"top flake, pass the matching homobilayer interface from "
+                f"moire_metrology.interfaces."
+            )
+        if not top_interface.is_homobilayer:
+            raise ValueError(
+                "top_interface must be a homobilayer interface "
+                "(top_interface.bottom is top_interface.top), "
+                f"got {top_interface.name} which is heterogeneous."
+            )
+        if top_interface.top is not moire_interface.top:
+            raise ValueError(
+                "top_interface material does not match the top flake material. "
+                f"moire_interface.top={moire_interface.top.name!r}, "
+                f"top_interface.top={top_interface.top.name!r}."
+            )
+
+    if n_bottom > 1:
+        if bottom_interface is None:
+            raise ValueError(
+                f"n_bottom={n_bottom} requires a `bottom_interface=` (the homobilayer "
+                f"interface inside the bottom flake). For a {moire_interface.bottom.name} "
+                f"bottom flake, pass the matching homobilayer interface from "
+                f"moire_metrology.interfaces."
+            )
+        if not bottom_interface.is_homobilayer:
+            raise ValueError(
+                "bottom_interface must be a homobilayer interface "
+                "(bottom_interface.bottom is bottom_interface.top), "
+                f"got {bottom_interface.name} which is heterogeneous."
+            )
+        if bottom_interface.bottom is not moire_interface.bottom:
+            raise ValueError(
+                "bottom_interface material does not match the bottom flake material. "
+                f"moire_interface.bottom={moire_interface.bottom.name!r}, "
+                f"bottom_interface.bottom={bottom_interface.bottom.name!r}."
+            )
+
+
 class RelaxationSolver:
     """Solver for atomic relaxation in twisted 2D heterostructures."""
 
@@ -468,11 +547,13 @@ class RelaxationSolver:
 
     def solve(
         self,
-        material1: Material,
-        material2: Material,
-        theta_twist: float,
-        nlayer1: int = 1,
-        nlayer2: int = 1,
+        moire_interface: Interface | None = None,
+        *,
+        top_interface: Interface | None = None,
+        bottom_interface: Interface | None = None,
+        n_top: int = 1,
+        n_bottom: int = 1,
+        theta_twist: float = 0.0,
         delta: float | None = None,
         theta0: float = 0.0,
         initial_solution: np.ndarray | None = None,
@@ -480,19 +561,32 @@ class RelaxationSolver:
         fix_top: bool = False,
         fix_bottom: bool = False,
         mesh: MoireMesh | None = None,
+        **legacy_kwargs,
     ) -> RelaxationResult:
         """Solve the relaxation problem.
 
         Parameters
         ----------
-        material1, material2 : Material
-            Materials for the two stacks.
+        moire_interface : Interface
+            The twisted A-B interface between the bottom layer of the top
+            flake and the top layer of the bottom flake. Carries both
+            materials (``moire_interface.bottom`` is the bottom-flake
+            material, ``moire_interface.top`` is the top-flake material)
+            as well as the GSFE coefficients for their stacking.
+        top_interface : Interface, optional
+            Required iff ``n_top > 1``. The homobilayer interface used
+            between successive layers within the top flake. Must have
+            ``bottom == top == moire_interface.top``.
+        bottom_interface : Interface, optional
+            Required iff ``n_bottom > 1``. The homobilayer interface used
+            between successive layers within the bottom flake. Must have
+            ``bottom == top == moire_interface.bottom``.
+        n_top, n_bottom : int
+            Number of layers in each flake.
         theta_twist : float
             Twist angle in degrees.
-        nlayer1, nlayer2 : int
-            Number of layers in each stack.
         delta : float or None
-            Lattice mismatch. If None, computed from material lattice constants.
+            Lattice mismatch. If None, computed from the two materials.
         theta0 : float
             Lattice orientation angle in degrees.
         initial_solution : ndarray or None
@@ -502,14 +596,15 @@ class RelaxationSolver:
             optimizing the rest. Build via PinningMap.build_constraints().
             Mutually exclusive with fix_top / fix_bottom.
         fix_top : bool
-            Pin all DOFs of the topmost layer (stack 1, layer 0) to zero.
-            Use this to clamp the upper free surface of the heterostructure
-            and approximate a semi-infinite top.
+            Pin all DOFs of the topmost layer (top of the top flake) to
+            zero. Use this to clamp the upper free surface of the
+            heterostructure and approximate a semi-infinite top.
         fix_bottom : bool
-            Pin all DOFs of the bottommost layer (stack 2, layer nlayer2-1)
-            to zero. Use this to clamp the substrate's free surface and
-            approximate a semi-infinite bottom — typical for simulating a
-            twisted flake on a thick substrate (e.g. graphene on graphite).
+            Pin all DOFs of the bottommost layer (bottom of the bottom
+            flake) to zero. Use this to clamp the substrate and
+            approximate a semi-infinite bottom — typical for simulating
+            a twisted flake on a thick substrate (e.g. graphene on
+            graphite).
         mesh : MoireMesh or None
             Pre-built mesh to use. If None (default), the solver builds a
             periodic moire-cell mesh from the SolverConfig parameters
@@ -519,7 +614,38 @@ class RelaxationSolver:
             domain — typically combined with ``constraints`` from
             ``PinningMap.build_constraints`` to pin selected stacking
             sites in the experimental image.
+
+        Notes
+        -----
+        Internally the solver still uses the legacy "stack 1" / "stack 2"
+        numbering, where stack 1 is the *top* flake and stack 2 is the
+        *bottom* flake. This is an implementation detail of the
+        construction layer; the public API is in terms of
+        ``moire_interface.top`` / ``moire_interface.bottom`` and the
+        ``n_top`` / ``n_bottom`` flake sizes. The translation happens
+        once at the top of this method.
         """
+        if legacy_kwargs:
+            _raise_legacy_kwargs(legacy_kwargs)
+        if moire_interface is None:
+            raise TypeError(
+                "RelaxationSolver.solve() requires a `moire_interface` argument. "
+                "Pass a bundled Interface from moire_metrology.interfaces (e.g. "
+                "GRAPHENE_GRAPHENE) or construct your own Interface."
+            )
+
+        _validate_flake_interfaces(
+            moire_interface, top_interface, bottom_interface, n_top, n_bottom
+        )
+
+        # Translate from the public (top/bottom) vocabulary to the internal
+        # (stack-1 = top flake, stack-2 = bottom flake) numbering. The
+        # solver guts and the npz schema still use stack 1 / stack 2.
+        material1 = moire_interface.top      # stack 1 = top flake
+        material2 = moire_interface.bottom   # stack 2 = bottom flake
+        nlayer1 = n_top
+        nlayer2 = n_bottom
+
         cfg = self.config
 
         if delta is None:
@@ -560,17 +686,25 @@ class RelaxationSolver:
                 conv, fix_top=fix_top, fix_bottom=fix_bottom,
             )
 
-        gsfe_interface = GSFESurface(material1.gsfe_coeffs)
-        gsfe_flake1 = GSFESurface(material1.gsfe_coeffs) if nlayer1 > 1 else None
-        gsfe_flake2 = GSFESurface(material2.gsfe_coeffs) if nlayer2 > 1 else None
+        # GSFE comes from the interfaces, not the materials. The moiré
+        # interface drives the twisted flake-flake registry; the
+        # homobilayer interfaces (when present) drive the intra-flake
+        # registry of multi-layer flakes.
+        gsfe_interface = GSFESurface(moire_interface.gsfe_coeffs)
+        gsfe_flake1 = (
+            GSFESurface(top_interface.gsfe_coeffs) if nlayer1 > 1 else None
+        )
+        gsfe_flake2 = (
+            GSFESurface(bottom_interface.gsfe_coeffs) if nlayer2 > 1 else None
+        )
 
         I1_vect = J1_vect = I2_vect = J2_vect = None
-        if nlayer1 > 1 and material1.stacking_func is not None:
-            I1_vect = np.array([material1.stacking_func(k)[0] for k in range(1, nlayer1)])
-            J1_vect = np.array([material1.stacking_func(k)[1] for k in range(1, nlayer1)])
-        if nlayer2 > 1 and material2.stacking_func is not None:
-            I2_vect = np.array([material2.stacking_func(k)[0] for k in range(1, nlayer2)])
-            J2_vect = np.array([material2.stacking_func(k)[1] for k in range(1, nlayer2)])
+        if nlayer1 > 1 and top_interface is not None and top_interface.stacking_func is not None:
+            I1_vect = np.array([top_interface.stacking_func(k)[0] for k in range(1, nlayer1)])
+            J1_vect = np.array([top_interface.stacking_func(k)[1] for k in range(1, nlayer1)])
+        if nlayer2 > 1 and bottom_interface is not None and bottom_interface.stacking_func is not None:
+            I2_vect = np.array([bottom_interface.stacking_func(k)[0] for k in range(1, nlayer2)])
+            J2_vect = np.array([bottom_interface.stacking_func(k)[1] for k in range(1, nlayer2)])
 
         if cfg.display:
             t_start = perf_counter()
@@ -674,7 +808,9 @@ class RelaxationSolver:
 
         return RelaxationResult(
             mesh=mesh, geometry=geometry,
-            material1=material1, material2=material2,
+            moire_interface=moire_interface,
+            top_interface=top_interface,
+            bottom_interface=bottom_interface,
             displacement_x1=ux1, displacement_y1=uy1,
             displacement_x2=ux2, displacement_y2=uy2,
             total_energy=result.fun, unrelaxed_energy=E0,

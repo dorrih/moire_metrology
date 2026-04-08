@@ -83,27 +83,64 @@ with `ruff check --fix`.
 - **`docs_internal/`** — maintainer notes and design docs. Not part of the
   public package and not shipped in the sdist.
 
-## Adding a new material
+## Adding a new material or interface
 
-The package's built-in materials live in `src/moire_metrology/materials.py`.
-We're happy to accept upstream contributions of new materials, but each new
-entry needs:
+`moire_metrology` separates two concerns:
 
-1. **Lattice constant** (nm) with a citation.
-2. **Bulk and shear moduli** (meV per unit cell) with a citation and an
-   explicit note about the convention (we use the Carr/Zhou convention,
-   meV/uc).
-3. **GSFE coefficients** `(c0, c1, c2, c3, c4, c5)` (meV/uc) with a citation
-   and an explicit note about the basis convention.
-4. **Stacking convention** — H-stacking, R-stacking, homobilayer, etc.
-5. **A short test case** that exercises the new material end-to-end (a small
-   relaxation with an asserted energy or convergence behaviour).
+- **`Material`** (`src/moire_metrology/materials.py`) — per-layer
+  *intra-layer* properties: lattice constant and 2D elastic moduli.
+- **`Interface`** (`src/moire_metrology/interfaces.py`) — the
+  registry-dependent stacking energy *between two adjacent layers*.
+  This is where GSFE lives.
 
-Open an issue with the *Add material* template first so we can discuss the
-parameters and any convention questions before you write the PR. If you
-just want to use a new material in your own scripts without upstreaming
-it, see the "Custom materials" section in the README — you can construct
-a `Material` directly or load one from TOML, no code changes required.
+GSFE is physically a property of the *pair* of materials in contact,
+not of either material individually. Adding a new material (e.g. a
+TMD that isn't bundled) and adding a new interface (e.g. a heterostack
+of two existing materials) are separate contributions that can be
+made together or independently.
+
+### Adding a new `Material`
+
+Each new entry needs:
+
+1. **Name and chemical formula.**
+2. **Lattice constant** (nm) with a citation.
+3. **Bulk and shear moduli** (meV per unit cell) with a citation and
+   an explicit note about the convention (we use the Carr/Zhou
+   convention, meV/uc per layer).
+
+That's it — `Material` does not carry GSFE.
+
+### Adding a new `Interface`
+
+Each new entry needs:
+
+1. **Name** (e.g. `"MoSe2/WSe2 (H-stacked)"`).
+2. **Bottom and top materials** — the two existing or newly-added
+   `Material`s the interface couples.
+3. **GSFE coefficients** `(c0, c1, c2, c3, c4, c5)` in meV/uc, in the
+   Carr basis. For centrosymmetric homobilayers c4 = c5 = 0; for
+   heterointerfaces with broken inversion symmetry they are non-zero.
+4. **Stacking convention** — H-stacking, R-stacking, homobilayer, etc.,
+   plus the `stacking_func` for homobilayer interfaces (or `None` for
+   heterointerfaces, where no Bernal-like convention applies).
+5. **Reference** — a citation string for the GSFE numbers (so the
+   provenance travels with the data).
+6. **A short test case** that exercises the new interface end-to-end
+   (a small relaxation with an asserted energy or convergence
+   behaviour).
+
+Open an issue with the *Add material* or *Add interface* template
+first so we can discuss the parameters and any convention questions
+before you write the PR.
+
+### Using a custom material/interface in your own scripts
+
+If you just want to use a new material or interface in your own
+scripts without upstreaming it, you can construct `Material` and
+`Interface` instances directly — no code changes to the package
+required. See the *Custom materials and interfaces* section of the
+README for a complete example.
 
 ## Commit messages
 

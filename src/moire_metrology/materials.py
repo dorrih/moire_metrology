@@ -1,31 +1,35 @@
-"""Material database for 2D van der Waals heterostructures.
+"""Per-layer material properties for 2D van der Waals heterostructures.
 
-GSFE coefficients use the Carr convention (AB-referenced for centrosymmetric materials).
-Units: lattice constants in nm, elastic moduli and GSFE coefficients in meV/unit cell.
+A :class:`Material` carries the *intra-layer* properties of a 2D
+crystal: lattice constant and 2D elastic moduli. The *inter-layer*
+stacking interaction (GSFE) is a property of a pair of materials in
+contact, not of either material individually, and lives on
+:class:`moire_metrology.interfaces.Interface` instead.
 
-The GSFE Fourier expansion is:
-    V(v,w) = c0 + c1*(cos(v)+cos(w)+cos(v+w))
-           + c2*(cos(v+2w)+cos(v-w)+cos(2v+w))
-           + c3*(cos(2v)+cos(2w)+cos(2v+2w))
-           + c4*(sin(v)+sin(w)-sin(v+w))
-           + c5*(sin(2v+2w)-sin(2v)-sin(2w))
+Units: lattice constants in nm; bulk and shear moduli in meV per
+unit cell (the Carr/Zhou convention).
 
-References:
-    Zhou et al., PRB 92, 155438 (2015) — original GSFE parameterizations
-    Carr et al., PRB 98, 224102 (2018) — convention used here
+.. note::
+    The bulk and shear moduli for graphene and hBN bundled below
+    (K = 8595, G = 5765 meV/uc) are taken from the Zhou et al. DFT-D2
+    derivation. The MATLAB code this package was ported from used a
+    different parameterization (K = 69518, G = 47352) whose source is
+    not yet pinned down — see ``project_KG_discrepancy`` in the
+    maintainer notes. The TMD entries (MoSe2, WSe2) use values from
+    the Shabani et al. Nature Physics paper and are not part of that
+    discrepancy.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Callable
+from dataclasses import dataclass
 
 import numpy as np
 
 
 @dataclass(frozen=True)
 class Material:
-    """A 2D material with elastic and interlayer interaction parameters.
+    """Per-layer properties of a single 2D material.
 
     Parameters
     ----------
@@ -37,22 +41,12 @@ class Material:
         2D bulk modulus K = lambda + mu in meV/unit cell.
     shear_modulus : float
         2D shear modulus G = mu in meV/unit cell.
-    gsfe_coeffs : tuple[float, ...]
-        GSFE Fourier coefficients (c0, c1, c2, c3, c4, c5) in meV/unit cell.
-        For centrosymmetric materials (graphene, hBN-AA), c4 = c5 = 0.
-    stacking_func : callable or None
-        Function (k: int) -> (I, J) giving the natural Bernal stacking offset
-        for layer k within a multi-layer stack. None for single-interface use.
     """
 
     name: str
     lattice_constant: float
     bulk_modulus: float
     shear_modulus: float
-    gsfe_coeffs: tuple[float, ...] = field(repr=False)
-    stacking_func: Callable[[int], tuple[float, float]] | None = field(
-        default=None, repr=False
-    )
 
     @property
     def unit_cell_area(self) -> float:
@@ -60,136 +54,39 @@ class Material:
         return np.sqrt(3) / 2 * self.lattice_constant**2
 
 
-def _zhou_to_carr(c_zhou: tuple[float, ...], alpha: float, ab_ref: bool = True) -> tuple[float, ...]:
-    """Convert Zhou et al. (mJ/m^2) coefficients to Carr convention (meV/uc).
-
-    Parameters
-    ----------
-    c_zhou : tuple
-        (c0, c1, c2, c3, c4, c5) in mJ/m^2 from Zhou et al.
-    alpha : float
-        Lattice constant in nm.
-    ab_ref : bool
-        If True, transform to AB-referenced convention (for centrosymmetric materials).
-    """
-    e_charge = 1.60217662e-19  # C
-    Suc = np.sqrt(3) / 2 * alpha**2  # nm^2
-    fac = Suc / (1e18 * e_charge)  # mJ/m^2 -> meV/uc
-
-    c0z, c1z, c2z, c3z, c4z, c5z = c_zhou
-
-    if ab_ref:
-        c0 = fac * c0z
-        c1 = fac * (-0.5 * (c1z + np.sqrt(3) * c4z))
-        c2 = fac * c2z
-        c3 = fac * (-0.5 * (c3z - np.sqrt(3) * c5z))
-        c4 = fac * (0.5 * (np.sqrt(3) * c1z - c4z))
-        c5 = fac * 0.5 * (np.sqrt(3) * c3z + c5z)
-    else:
-        c0 = fac * c0z
-        c1 = fac * c1z
-        c2 = fac * c2z
-        c3 = fac * c3z
-        c4 = fac * c4z
-        c5 = fac * c5z
-
-    return (c0, c1, c2, c3, c4, c5)
-
-
-def _graphene_stacking(k: int) -> tuple[float, float]:
-    """Bernal (AB) stacking for graphene: alternating (1/3, 1/3) and (0, 0)."""
-    val = (1 / 3) * ((-1) ** k)
-    return (val, val)
-
-
-def _hbn_aap_stacking(k: int) -> tuple[float, float]:
-    """AA' stacking for hBN."""
-    return (0.0, 0.0)
-
-
-# --- Pre-built materials ---
-
-# Graphene-graphene (Zhou et al. DFT-D2)
-_gr_zhou = (21.336, -6.127, -1.128, 0.143, np.sqrt(3) * (-6.127), -np.sqrt(3) * 0.143)
-_gr_coeffs = _zhou_to_carr(_gr_zhou, 0.247, ab_ref=True)
+# --- Bundled materials ---
+#
+# Each entry below is intentionally GSFE-free — the registry-dependent
+# stacking energy is on :class:`Interface` in :mod:`interfaces`, not
+# here. Pair these materials with a bundled or user-defined Interface
+# when calling the solver.
 
 GRAPHENE = Material(
     name="Graphene",
     lattice_constant=0.247,
     bulk_modulus=8595.0,
     shear_modulus=5765.0,
-    gsfe_coeffs=_gr_coeffs,
-    stacking_func=_graphene_stacking,
 )
-
-# hBN AA stacking
-_hbn_aa_zhou = (28.454, -7.160, -0.496, -0.339, np.sqrt(3) * (-7.160), -np.sqrt(3) * (-0.339))
-_hbn_aa_coeffs = _zhou_to_carr(_hbn_aa_zhou, 0.251, ab_ref=True)
 
 HBN_AA = Material(
     name="hBN (AA)",
     lattice_constant=0.251,
     bulk_modulus=8595.0,
     shear_modulus=5765.0,
-    gsfe_coeffs=_hbn_aa_coeffs,
-    stacking_func=_graphene_stacking,
 )
-
-# hBN AA' stacking (breaks inversion symmetry)
-_hbn_aap_zhou = (31.584, -9.935, -0.918, 0.325, -7.848, 0.67)
-_hbn_aap_coeffs = _zhou_to_carr(_hbn_aap_zhou, 0.251, ab_ref=False)
 
 HBN_AAP = Material(
     name="hBN (AA')",
     lattice_constant=0.251,
     bulk_modulus=8595.0,
     shear_modulus=5765.0,
-    gsfe_coeffs=_hbn_aap_coeffs,
-    stacking_func=_hbn_aap_stacking,
 )
-
-# Graphene on hBN (heterostructure interface)
-_gr_hbn_zhou = (39.222, -11.96, -0.748, -0.366, 1.640, 0.201)
-_gr_hbn_coeffs = _zhou_to_carr(_gr_hbn_zhou, 0.247, ab_ref=False)
-
-GRAPHENE_ON_HBN = Material(
-    name="Graphene/hBN",
-    lattice_constant=0.247,
-    bulk_modulus=8595.0,
-    shear_modulus=5765.0,
-    gsfe_coeffs=_gr_hbn_coeffs,
-)
-
-# H-stacked MoSe2 / WSe2 heterostructure.
-#
-# Source: Shabani, Halbertal, Wu, Chen, Liu, Hone, Yao, Basov, Zhu &
-# Pasupathy, "Deep moiré potentials in twisted transition metal
-# dichalcogenide bilayers", Nature Physics 17, 720-725 (2021).
-# DOI: 10.1038/s41567-021-01174-7. The Methods section reports both the
-# elastic moduli (per layer) and the GSFE coefficients of the H-stacked
-# heterointerface, all in meV/unit-cell, in the same Carr-style Fourier
-# basis the package uses (so no Zhou→Carr conversion is needed).
-#
-# In an H-stacked MoSe2/WSe2 bilayer the global energy minimum is the MX'
-# stacking; XX' is most unfavourable; MM' is a local minimum. The c4, c5
-# coefficients (sin terms) are non-zero, reflecting the broken inversion
-# symmetry of the heterointerface.
-#
-# Both Material entries below carry the SAME `gsfe_coeffs` because the
-# package's RelaxationSolver only consults `material1.gsfe_coeffs` for
-# the interface GSFE — `material2.gsfe_coeffs` is ignored at the
-# interface, so we duplicate the values for clarity. Use either as
-# `material1` and the other as `material2` in solve(); the lattice
-# mismatch (~0.18%) is computed automatically from the lattice
-# constants and drives a non-trivial moiré pattern even at zero twist.
-_mose2_wse2_h_gsfe = (42.6, 16.0, -2.7, -1.1, 3.7, 0.6)
 
 MOSE2 = Material(
     name="MoSe2",
     lattice_constant=0.3288,
     bulk_modulus=40521.0,
     shear_modulus=26464.0,
-    gsfe_coeffs=_mose2_wse2_h_gsfe,
 )
 
 WSE2 = Material(
@@ -197,5 +94,4 @@ WSE2 = Material(
     lattice_constant=0.3282,
     bulk_modulus=43113.0,
     shear_modulus=30770.0,
-    gsfe_coeffs=_mose2_wse2_h_gsfe,
 )
