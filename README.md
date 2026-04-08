@@ -206,6 +206,60 @@ a homobilayer interface and pass it as `top_interface=` / `bottom_interface=`
 on `LayerStack` or `solve()`. The bundled `moire_metrology.interfaces`
 module is a good template for what fields each entry needs.
 
+#### Loading a material or interface from TOML
+
+For sharing parameter sets, version-controlling them separately from
+your scripts, or sweeping over alternative GSFE parameterizations,
+`Material` and `Interface` can also be loaded from a TOML file. The
+schema for an interface is:
+
+```toml
+[interface]
+name = "MoSe2/WSe2 (H-stacked)"
+gsfe_coeffs = [42.6, 16.0, -2.7, -1.1, 3.7, 0.6]
+reference = "Shabani et al., Nat. Phys. 17, 720 (2021)"
+
+[interface.bottom]
+name = "WSe2"
+lattice_constant = 0.3282    # nm
+bulk_modulus = 43113.0       # meV/uc
+shear_modulus = 30770.0      # meV/uc
+
+[interface.top]
+name = "MoSe2"
+lattice_constant = 0.3288    # nm
+bulk_modulus = 40521.0       # meV/uc
+shear_modulus = 26464.0      # meV/uc
+```
+
+Both materials are inlined under `[interface.bottom]` and
+`[interface.top]`. The `bottom`/`top` convention matches the
+`Interface.bottom` / `Interface.top` field names — boundary conditions
+like `fix_bottom` clamp the bottommost layer of the bottom flake.
+
+Loading and using the file:
+
+```python
+from moire_metrology import Interface, RelaxationSolver, SolverConfig
+
+interface = Interface.from_toml("path/to/mose2_wse2_h.toml")
+result = RelaxationSolver(SolverConfig()).solve(
+    moire_interface=interface, theta_twist=1.5,
+)
+```
+
+A worked example file lives at
+[`examples/data/mose2_wse2_h.toml`](examples/data/mose2_wse2_h.toml)
+and reproduces the bundled `MOSE2_WSE2_H_INTERFACE` exactly. There is
+also a `Material.from_toml()` for loading a standalone `[material]`
+table.
+
+The TOML loader does **not** support `stacking_func` (it is a Python
+callable, and serializing arbitrary callables is out of scope). For
+multi-layer flakes that need a non-trivial Bernal-stacking convention,
+construct the `Interface` directly in Python or post-process the
+loaded instance.
+
 ## Testing
 
 ```bash

@@ -137,10 +137,12 @@ before you write the PR.
 ### Using a custom material/interface in your own scripts
 
 If you just want to use a new material or interface in your own
-scripts without upstreaming it, you can construct `Material` and
-`Interface` instances directly — no code changes to the package
-required. See the *Custom materials and interfaces* section of the
-README for a complete example.
+scripts without upstreaming it, you can either construct `Material`
+and `Interface` instances directly in Python, or load them from a
+TOML file via `Material.from_toml()` / `Interface.from_toml()` — no
+code changes to the package required. See the *Custom materials and
+interfaces* section of the README for both patterns and a worked
+example file at `examples/data/mose2_wse2_h.toml`.
 
 ## Commit messages
 
