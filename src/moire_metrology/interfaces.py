@@ -34,8 +34,10 @@ References
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass, field
-from typing import Callable
+from pathlib import Path
+from typing import Any, Callable, Mapping
 
 import numpy as np
 
@@ -47,6 +49,11 @@ from .materials import (
     WSE2,
     Material,
 )
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - exercised on Python 3.10 only
+    import tomli as tomllib
 
 
 @dataclass(frozen=True)
@@ -97,6 +104,106 @@ class Interface:
     def is_homobilayer(self) -> bool:
         """True iff the bottom and top materials are the same object."""
         return self.bottom is self.top
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "Interface":
+        """Build an Interface from a plain ``dict`` (e.g. parsed from TOML).
+
+        The dict must contain the following keys:
+
+        - ``name`` (str)
+        - ``bottom`` (dict — inline Material spec, see :meth:`Material.from_dict`)
+        - ``top`` (dict — inline Material spec)
+        - ``gsfe_coeffs`` (sequence of 6 floats, Carr basis, meV/uc)
+        - ``reference`` (optional str)
+
+        ``stacking_func`` is intentionally NOT loadable from a plain
+        dict — it is a Python callable, and serializing arbitrary
+        callables is out of scope for the TOML loader. If you need a
+        non-trivial stacking convention, construct the Interface
+        directly in Python or post-process the loaded instance.
+
+        Extra keys raise a ``ValueError`` so typos in user TOML files
+        surface immediately.
+        """
+        required = {"name", "bottom", "top", "gsfe_coeffs"}
+        optional = {"reference"}
+        missing = required - set(data)
+        if missing:
+            raise ValueError(
+                f"Interface spec is missing required field(s): {sorted(missing)}. "
+                f"An interface needs name, bottom (Material spec), top (Material spec), "
+                f"and gsfe_coeffs (six Carr-convention coefficients in meV/uc)."
+            )
+        extra = set(data) - required - optional
+        if extra:
+            raise ValueError(
+                f"Interface spec has unknown field(s): {sorted(extra)}. "
+                f"Note: stacking_func is not loadable from a dict — "
+                f"construct the Interface in Python if you need a "
+                f"non-trivial stacking convention."
+            )
+
+        bottom = Material.from_dict(data["bottom"])
+        top = Material.from_dict(data["top"])
+
+        coeffs_seq = data["gsfe_coeffs"]
+        try:
+            coeffs = tuple(float(c) for c in coeffs_seq)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"gsfe_coeffs must be a sequence of numbers, got {coeffs_seq!r}"
+            ) from e
+        if len(coeffs) != 6:
+            raise ValueError(
+                f"gsfe_coeffs must have exactly 6 entries (c0..c5), got {len(coeffs)}"
+            )
+
+        return cls(
+            name=str(data["name"]),
+            bottom=bottom,
+            top=top,
+            gsfe_coeffs=coeffs,
+            stacking_func=None,
+            reference=str(data.get("reference", "")),
+        )
+
+    @classmethod
+    def from_toml(cls, path: str | Path) -> "Interface":
+        """Load an Interface from a TOML file.
+
+        The file must contain a top-level ``[interface]`` table with
+        inline Material definitions for both layers::
+
+            [interface]
+            name = "MoSe2/WSe2 (H-stacked)"
+            gsfe_coeffs = [42.6, 16.0, -2.7, -1.1, 3.7, 0.6]
+            reference = "Shabani et al., Nat. Phys. 17, 720 (2021)"
+
+            [interface.bottom]
+            name = "WSe2"
+            lattice_constant = 0.3282
+            bulk_modulus = 43113.0
+            shear_modulus = 30770.0
+
+            [interface.top]
+            name = "MoSe2"
+            lattice_constant = 0.3288
+            bulk_modulus = 40521.0
+            shear_modulus = 26464.0
+
+        See :meth:`Interface.from_dict` for the field semantics. The
+        ``stacking_func`` field cannot be loaded from TOML; if you need
+        a non-trivial stacking convention for multi-layer flakes,
+        construct the Interface directly in Python instead.
+        """
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        if "interface" not in data:
+            raise ValueError(
+                f"{path}: TOML file must contain a top-level [interface] table."
+            )
+        return cls.from_dict(data["interface"])
 
 
 # ---------------------------------------------------------------------------

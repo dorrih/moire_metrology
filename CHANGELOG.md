@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **TOML loaders for `Material` and `Interface`.** Both dataclasses
+  now have `from_dict()` and `from_toml()` classmethods so users can
+  define a custom material or heterointerface in a standalone TOML
+  file and load it without forking the package. The schema mirrors
+  the dataclass field names; an `[interface]` table inlines its two
+  materials under `[interface.bottom]` and `[interface.top]`. Worked
+  example at `examples/data/mose2_wse2_h.toml` reproduces the bundled
+  `MOSE2_WSE2_H_INTERFACE` and is asserted bit-identical in the test
+  suite. `tomli>=2.0` added as a conditional dependency for Python
+  3.10; `tomllib` (stdlib) is used on 3.11+.
+- README *Custom materials and interfaces* section now has a TOML
+  loader subsection alongside the existing direct-construction one.
+- 16 new tests in `tests/test_toml_loader.py`: round-trips, missing
+  fields, typo'd extra fields (with a helpful "did you mean
+  Interface?" pointer for GSFE on `Material`), wrong-length GSFE
+  coefficients, non-numeric GSFE coefficients, and end-to-end
+  numerical equivalence to the bundled equivalent.
+
+### Fixed
+
+- **`pyproject.toml` version bumped from `"0.1.0"` to `"0.2.0"`.**
+  The v0.2.0 refactor PR bumped `__version__` in
+  `src/moire_metrology/__init__.py` but missed the wheel metadata in
+  `pyproject.toml`, so the wheel and sdist built from the v0.2.0 tag
+  still self-identify as `0.1.0`. The Zenodo archive of the v0.2.0
+  tag is frozen with the wrong wheel metadata; this fix takes effect
+  for the next release tag (v0.2.1 / v0.3.0).
+
 ## [0.2.0] - 2026-04-08
 
 ### Changed (breaking)

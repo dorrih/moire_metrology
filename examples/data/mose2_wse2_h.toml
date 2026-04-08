@@ -1,0 +1,37 @@
+# MoSe2/WSe2 H-stacked heterointerface, in Carr basis (meV/uc).
+#
+# This file reproduces the bundled `MOSE2_WSE2_H_INTERFACE` from
+# `moire_metrology.interfaces` as a TOML interface spec, and serves as
+# the canonical example for `Interface.from_toml()`. The Material
+# parameters and GSFE coefficients are taken from:
+#
+#   Shabani, Halbertal et al., "Deep moiré potentials in twisted
+#   transition metal dichalcogenide bilayers", Nature Physics 17,
+#   720–725 (2021), doi:10.1038/s41567-021-01174-7
+#
+# In an H-stacked MoSe2/WSe2 bilayer the GSFE has non-zero c4, c5
+# coefficients reflecting the broken inversion symmetry of the
+# heterointerface. The lattice mismatch (~0.18%) drives a non-trivial
+# moire pattern even at zero twist.
+#
+# Convention: `bottom` is the lower layer, `top` is the upper layer
+# (matching the `Interface.bottom` / `Interface.top` field names).
+# Boundary conditions like `fix_bottom` clamp the bottommost layer
+# of the bottom flake.
+
+[interface]
+name = "MoSe2/WSe2 (H-stacked)"
+gsfe_coeffs = [42.6, 16.0, -2.7, -1.1, 3.7, 0.6]
+reference = "Shabani et al., Nat. Phys. 17, 720 (2021), doi:10.1038/s41567-021-01174-7"
+
+[interface.bottom]
+name = "WSe2"
+lattice_constant = 0.3282    # nm
+bulk_modulus = 43113.0       # meV/uc
+shear_modulus = 30770.0      # meV/uc
+
+[interface.top]
+name = "MoSe2"
+lattice_constant = 0.3288    # nm
+bulk_modulus = 40521.0       # meV/uc
+shear_modulus = 26464.0      # meV/uc
