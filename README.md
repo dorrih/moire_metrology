@@ -4,6 +4,7 @@
 [![status](https://img.shields.io/badge/status-alpha-orange)](#status)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](#)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19468557.svg)](https://doi.org/10.5281/zenodo.19468557)
 
 Atomic relaxation, strain extraction, and multi-layer analysis for twisted
 2D van der Waals heterostructures.
@@ -218,8 +219,20 @@ if you use this package in published work, please cite the relevant paper(s).
    [doi:10.1038/s41567-021-01174-7](https://www.nature.com/articles/s41567-021-01174-7)
    · [arXiv:2008.07696](https://arxiv.org/abs/2008.07696)
 
+### Citing the software itself
+
+In addition to the methodology paper(s) above, please also cite the
+software when you use it in published work. The package is archived on
+Zenodo and has a concept DOI that always resolves to the latest version:
+
+- **DOI (always-latest):** [10.5281/zenodo.19468557](https://doi.org/10.5281/zenodo.19468557)
+- For citing a specific release, use the version-specific DOI listed on
+  the [Zenodo record](https://doi.org/10.5281/zenodo.19468557) (e.g.
+  v0.1.0 is [10.5281/zenodo.19468558](https://doi.org/10.5281/zenodo.19468558)).
+
 A machine-readable citation file is also provided as
-[`CITATION.cff`](CITATION.cff).
+[`CITATION.cff`](CITATION.cff); GitHub surfaces it via the "Cite this
+repository" button in the sidebar.
 
 ## License
 
