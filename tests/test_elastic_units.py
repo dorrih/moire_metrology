@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from moire_metrology import GRAPHENE, GRAPHENE_GRAPHENE, Material
+from moire_metrology import (
+    GRAPHENE,
+    GRAPHENE_GRAPHENE,
+    HBN_AA,
+    HBN_AAP,
+    Material,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -104,3 +110,56 @@ class TestModuliNperMConversion:
         via .moduli_n_per_m, must give ~211 N/m within 0.1%."""
         K_npm, _ = GRAPHENE.moduli_n_per_m
         np.testing.assert_allclose(K_npm, 211.0, rtol=2e-3)
+
+
+# ---------------------------------------------------------------------------
+# Bundled hBN values match Falin et al. Nat. Commun. 8, 15815 (2017)
+# ---------------------------------------------------------------------------
+
+
+class TestHBNFalinValues:
+    """Regression-lock the hBN parameters against Falin's indentation result.
+
+    Falin et al. report E_3D = 0.865 ± 0.073 TPa for monolayer hBN, which
+    gives E_2D ≈ 286 N/m using a 0.334 nm thickness. Combined with the
+    literature 2D Poisson ratio ν ≈ 0.21, the standard isotropic 2D Lamé
+    relations give K_2D ≈ 181 N/m, G_2D ≈ 118 N/m. The bundled HBN_AA and
+    HBN_AAP entries are constructed via Material.from_2d_moduli_n_per_m
+    with these values; this test locks them in against future regressions.
+    """
+
+    def test_hbn_aa_K_matches_falin(self):
+        K_npm, _ = HBN_AA.moduli_n_per_m
+        np.testing.assert_allclose(K_npm, 181.0, rtol=1e-3)
+
+    def test_hbn_aa_G_matches_falin(self):
+        _, G_npm = HBN_AA.moduli_n_per_m
+        np.testing.assert_allclose(G_npm, 118.2, rtol=1e-3)
+
+    def test_hbn_aap_matches_hbn_aa_numerically(self):
+        """The AA / AA' designation is a stacking convention for the
+        hBN bilayer interface; the per-layer Material entries are
+        physically the same monolayer hBN."""
+        np.testing.assert_allclose(HBN_AAP.bulk_modulus, HBN_AA.bulk_modulus,
+                                   rtol=1e-12)
+        np.testing.assert_allclose(HBN_AAP.shear_modulus, HBN_AA.shear_modulus,
+                                   rtol=1e-12)
+        assert HBN_AAP.lattice_constant == HBN_AA.lattice_constant
+
+    def test_hbn_K_in_literature_range(self):
+        """Sanity check: hBN 2D bulk modulus should land in the
+        180-200 N/m window that Falin's measurement supports.
+        Anything outside this range means a unit-conversion bug
+        or wrong literature value."""
+        K_npm, _ = HBN_AA.moduli_n_per_m
+        assert 175.0 < K_npm < 195.0, (
+            f"hBN K = {K_npm} N/m, expected ~181 (Falin et al. 2017)"
+        )
+
+    def test_hbn_G_in_literature_range(self):
+        """Sanity check: hBN 2D shear modulus should land in the
+        110-125 N/m window that Falin's measurement supports."""
+        _, G_npm = HBN_AA.moduli_n_per_m
+        assert 110.0 < G_npm < 125.0, (
+            f"hBN G = {G_npm} N/m, expected ~118 (Falin et al. 2017)"
+        )

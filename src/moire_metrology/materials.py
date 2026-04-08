@@ -33,15 +33,17 @@ literature.
 
 Sources for the bundled values
 -------------------------------
-- ``GRAPHENE``: K, G from Carr et al. PRB 98, 224102 (2018) as cited
-  in Halbertal et al. Nat. Commun. 12, 242 (2021), SI Table 1.
+- ``GRAPHENE``: K, G from Carr et al. PRB 98, 224102 (2018), Table I.
+- ``HBN_AA``, ``HBN_AAP``: K, G derived from Falin et al. Nat. Commun.
+  8, 15815 (2017), monolayer hBN indentation, ``E_2D ≈ 286 N/m``,
+  combined with the literature 2D Poisson ratio ``ν ≈ 0.21`` to give
+  ``K_2D ≈ 181 N/m, G_2D ≈ 118 N/m``. The AA / AA' distinction is a
+  stacking convention for the hBN/hBN bilayer interface, not a
+  monolayer material property — the Material entries are physically
+  the same; only the paired Interface entries differ.
 - ``MOSE2``, ``WSE2``: K, G from Halbertal et al. Nat. Commun. 12,
   242 (2021), SI Table 1, and independently confirmed in the
   Shabani, Halbertal et al. Nat. Phys. 17, 720 (2021) Methods section.
-- ``HBN_AA``, ``HBN_AAP``: **K, G are placeholders** — they currently
-  use graphene's values pending a literature source for hBN moduli.
-  See ``project_KG_discrepancy`` and the
-  ``docs_internal/functionality_followups.md`` punch list.
 """
 
 from __future__ import annotations
@@ -220,11 +222,13 @@ class Material:
 # here. Pair these materials with a bundled or user-defined Interface
 # when calling the solver.
 
-# Graphene K, G from Carr et al. PRB 98, 224102 (2018), as reproduced
-# in Halbertal et al. Nat. Commun. 12, 242 (2021), SI Table 1.
-# Values are in meV/uc with α = 0.247 nm. Equivalent to K ≈ 211 N/m,
-# G ≈ 144 N/m, matching the experimental indentation result of
-# Lee et al. Science 321, 385 (2008).
+# --- Graphene -------------------------------------------------------------
+#
+# K, G are exact verbatim copies of Carr et al. PRB 98, 224102 (2018),
+# Table I, "Graphene" row. Carr's text states: "All values are in units
+# of meV per unit cell." Equivalent to K ≈ 211 N/m, G ≈ 144 N/m,
+# matching the experimental indentation result of Lee et al. Science
+# 321, 385 (2008).
 GRAPHENE = Material(
     name="Graphene",
     lattice_constant=0.247,
@@ -232,29 +236,51 @@ GRAPHENE = Material(
     shear_modulus=47352.0,
 )
 
-# hBN K, G are KNOWN WRONG and unchanged in this commit. The values
-# below (K=8595, G=5765) are the same wrong-by-~8x values that
-# graphene shipped with before this commit fixed graphene; they were
-# never independently sourced for hBN. None of the Halbertal papers
-# in docs_internal tabulate hBN moduli; the maintainer is fetching
-# the right values from a separate publication and will update these
-# entries in a follow-up commit. Until then, treat any quantitative
-# hBN result from this package with skepticism. Tracked in
-# project_KG_discrepancy and docs_internal/functionality_followups.md.
-HBN_AA = Material(
+# --- hBN monolayer (used for both HBN_AA and HBN_AAP entries) -------------
+#
+# K, G are derived from Falin et al. Nat. Commun. 8, 15815 (2017),
+# "Mechanical properties of atomically thin boron nitride and the
+# role of interlayer interactions". Falin reports E_3D = 0.865 ± 0.073
+# TPa for monolayer hBN by AFM indentation, which gives a 2D Young's
+# modulus E_2D ≈ 286 N/m using the standard interlayer-spacing
+# thickness of 0.334 nm. With the literature 2D Poisson ratio
+# ν ≈ 0.21 for hBN (also from Falin and consistent with several DFT
+# results), the standard isotropic 2D Lamé relations give
+#
+#     K_2D = E / (2(1-ν)) = 286 / 1.58 = 181.0 N/m
+#     G_2D = E / (2(1+ν)) = 286 / 2.42 = 118.2 N/m
+#
+# which the from_2d_moduli_n_per_m constructor converts to meV/uc
+# (~61638 / ~40252 with α = 0.251 nm) so the literature N/m values
+# remain visible in the source.
+#
+# The AA / AA' designation is a *stacking* convention for the hBN/hBN
+# bilayer interface — it does not affect the monolayer per-layer
+# elastic properties. HBN_AA and HBN_AAP are therefore identical
+# Material entries that differ only in name; the actual stacking
+# difference lives on the corresponding Interface entries in
+# moire_metrology.interfaces.
+HBN_AA = Material.from_2d_moduli_n_per_m(
     name="hBN (AA)",
     lattice_constant=0.251,
-    bulk_modulus=8595.0,  # KNOWN WRONG — see note above
-    shear_modulus=5765.0,  # KNOWN WRONG — see note above
+    bulk_modulus_n_per_m=181.0,
+    shear_modulus_n_per_m=118.2,
 )
 
-HBN_AAP = Material(
+HBN_AAP = Material.from_2d_moduli_n_per_m(
     name="hBN (AA')",
     lattice_constant=0.251,
-    bulk_modulus=8595.0,  # KNOWN WRONG — see note above
-    shear_modulus=5765.0,  # KNOWN WRONG — see note above
+    bulk_modulus_n_per_m=181.0,
+    shear_modulus_n_per_m=118.2,
 )
 
+# --- MoSe2 / WSe2 ---------------------------------------------------------
+#
+# K, G from Halbertal et al. Nat. Commun. 12, 242 (2021), SI Table 1
+# (the "MoSe2/WSe2 180° twist" column gives separate K and G for each
+# of the two layers). Independently confirmed in Shabani, Halbertal
+# et al. Nat. Phys. 17, 720 (2021), Methods section, as the values
+# they used in the deep-moiré-potential analysis. All in meV/uc.
 MOSE2 = Material(
     name="MoSe2",
     lattice_constant=0.3288,

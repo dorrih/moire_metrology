@@ -68,17 +68,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hard-codes the literal Carr/paper values for graphene, eliminating
   the drift.
 
-### Known issues
-
-- **`HBN_AA` and `HBN_AAP` K, G are still wrong.** They currently
-  ship `K = 8595, G = 5765 meV/uc`, which were copied from the
-  pre-fix graphene values and do not represent hBN. None of the
-  Halbertal papers in `docs_internal/` tabulate hBN moduli; the
-  maintainer is fetching the right values from a separate
-  publication. Quantitative hBN-bearing relaxation results should
-  be treated with skepticism until that lands. Tracked in
-  `project_KG_discrepancy` and
-  `docs_internal/functionality_followups.md`.
+- **hBN elastic moduli now from Falin et al. Nat. Commun. 8, 15815
+  (2017).** v0.1.0 and v0.2.0 shipped `HBN_AA.bulk_modulus = 8595` and
+  `shear_modulus = 5765 meV/uc` — the same wrong-by-~8x values graphene
+  had, copy-pasted from the pre-fix `GRAPHENE` entry, with no hBN
+  source. They round-tripped to ~26 / ~17 N/m, which is physically
+  implausible for hBN. This commit replaces them with the literature-
+  derived values: Falin et al. report `E_3D = 0.865 ± 0.073 TPa` for
+  monolayer hBN by indentation, which gives `E_2D ≈ 286 N/m` using a
+  0.334 nm thickness. With `ν ≈ 0.21` (also Falin), the standard
+  isotropic 2D Lamé relations give `K_2D ≈ 181 N/m, G_2D ≈ 118 N/m`,
+  which the new `from_2d_moduli_n_per_m` constructor converts to
+  `K ≈ 61638 meV/uc, G ≈ 40252 meV/uc`. Both `HBN_AA` and `HBN_AAP`
+  now use these values; the AA / AA' designation is a stacking
+  convention for the *interface*, not a per-layer material property.
+- **All bundled materials and interfaces now have explicit literature
+  citations** as inline source comments AND as `reference=` strings on
+  the `Interface` entries. The hBN GSFE coefficients on
+  `HBN_AA_HOMOBILAYER`, `HBN_AAP_HOMOBILAYER`, and
+  `GRAPHENE_HBN_INTERFACE` were verified to be exact verbatim copies
+  of Zhou et al. PRB 92, 155438 (2015), Table III, by reading
+  `docs_internal/zhou2015.pdf` directly. The graphene K, G and GSFE
+  on `GRAPHENE` and `GRAPHENE_GRAPHENE` were verified against Carr et
+  al. PRB 98, 224102 (2018), Table I, by reading
+  `docs_internal/carr2018.pdf` directly. The MoSe2/WSe2 entries were
+  already verified against the Halbertal Nat. Commun. 2021 SI Table 1
+  and Shabani Nat. Phys. 2021 Methods section in the v0.2.0 work.
+  **The repo no longer contains any uncited material/interface
+  parameters.**
 
 ## [0.2.0] - 2026-04-08
 
