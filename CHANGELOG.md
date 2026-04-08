@@ -62,6 +62,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Fig. 1c-e (`θ`, `ε_c`, `ε_s` maps) on real H-MoSe2/WSe2 data.
   Recovered values match the paper qualitatively: `|θ|` ∈ [0.47°,
   1.93°] mean 1.53°, ε_c std 0.11%, ε_s std 0.16%.
+- **`examples/hbn_relaxation.py`** — bundled example demonstrating
+  the graphene/hBN heterointerface relaxation. Headline case is
+  θ = 0° (pure lattice-mismatch moiré, λ ≈ 15.75 nm), where the
+  1.6% intrinsic mismatch between graphene and hBN drives a moiré
+  pattern even without twist. The relaxed stacking-energy map shows
+  the textbook single-minimum hexagonal domain pattern (vs the AB/BA
+  triangular pattern of TBG). Runs end-to-end in ~3 seconds with
+  L-BFGS-B. Uses `GRAPHENE_HBN_INTERFACE` and the new v0.3.0
+  `Material.moduli_n_per_m` property to print literature-traceable
+  N/m values for the materials at run start.
+- **`examples/tmd_heterostructure.py`** — bundled example
+  demonstrating the H-stacked MoSe2/WSe2 heterointerface at θ = 1.5°
+  (λ ≈ 12.5 nm). The relaxed stacking-energy map shows the three
+  distinct stacking minima (XX', MX', MM') from the broken
+  inversion symmetry, and the energy reduction is ~34% — much
+  larger than TBG's ~30%, the textbook signature of a "deep moiré
+  potential". Runs end-to-end in ~30 seconds with L-BFGS-B. Cites
+  Shabani / Halbertal Nat. Phys. 17, 720 (2021).
+- README *Quick start* section now points at all three bundled
+  example scripts (graphene + hBN + TMD).
 
 ### Notes
 
