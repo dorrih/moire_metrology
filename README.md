@@ -33,8 +33,8 @@ known to be unreliable. See the issue tracker for the roadmap.
   al. convention.
 - **Strain extraction** from a measured moire pattern, implementing the
   closed-form `(λ₁, λ₂, φ₁, φ₂) → (θ, ε_c, ε_s)` inversion of
-  Halbertal et al., ACS Nano (2022), including the spatially-varying
-  registry-field extension.
+  Halbertal D., Shabani S., Pasupathy A. N., Basov D. N., ACS Nano (2022),
+  including the spatially-varying registry-field extension.
 - **Multi-layer stack API** (`LayerStack`) for heterostructures with
   multiple layers per flake. Energy / gradient / Hessian are correct and
   tested; see *Status* above for the solver caveat.
@@ -126,21 +126,36 @@ the `slow` marker so the dev loop stays tight.
 
 ## References
 
-The methodology is described in the following papers:
+The methodology is described in the following published papers. If you
+use this package in published work, please cite the relevant paper(s).
 
-- Halbertal et al., *Moiré metrology of energy landscapes in van der Waals
-  heterostructures*, Nat. Commun. **12**, 242 (2021),
-  [arXiv:2008.04835](https://arxiv.org/abs/2008.04835).
-- Halbertal et al., *Multi-layered atomic relaxation in van der Waals
-  heterostructures*,
-  [arXiv:2206.06395](https://arxiv.org/abs/2206.06395).
-- Halbertal, Shabani, Passupathy, Basov, *Extracting the Strain Matrix and
-  Twist Angle from the Moiré Superlattice in van der Waals
-  Heterostructures*, ACS Nano **16**, 1471 (2022),
-  [doi:10.1021/acsnano.1c09789](https://pubs.acs.org/doi/10.1021/acsnano.1c09789).
+**General / primary citation for the methodology:**
 
-If you use this package in published work, please cite the relevant
-paper(s) above.
+- Halbertal D., et al., *Moiré metrology of energy landscapes in van der
+  Waals heterostructures*, Nature Communications **12**, 242 (2021),
+  [doi:10.1038/s41467-020-20428-1](https://doi.org/10.1038/s41467-020-20428-1).
+
+**Cite for strain extraction:**
+
+- Halbertal D., Shabani S., Pasupathy A. N., Basov D. N., *Extracting the
+  Strain Matrix and Twist Angle from the Moiré Superlattice in van der
+  Waals Heterostructures*, ACS Nano **16**, 1471 (2022),
+  [doi:10.1021/acsnano.1c09789](https://doi.org/10.1021/acsnano.1c09789).
+
+**Cite for multi-layered relaxation calculations:**
+
+- Halbertal D., et al., *Multilayered Atomic Relaxation in van der Waals
+  Heterostructures*, Physical Review X **13**, 011026 (2023),
+  [doi:10.1103/PhysRevX.13.011026](https://doi.org/10.1103/PhysRevX.13.011026).
+
+**Relevant for the spatially-varying strain / deep-potential relaxation case:**
+
+- Shabani S., Halbertal D., et al., *Deep moiré potentials in twisted
+  transition metal dichalcogenide bilayers*, Nature Physics **17**, 720
+  (2021), [doi:10.1038/s41567-021-01174-7](https://doi.org/10.1038/s41567-021-01174-7).
+
+A machine-readable citation file is also provided as
+[`CITATION.cff`](CITATION.cff).
 
 ## License
 
