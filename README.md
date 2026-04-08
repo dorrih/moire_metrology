@@ -197,19 +197,19 @@ if you use this package in published work, please cite the relevant paper(s).
 
 1. Halbertal, D. *et al.* **Moiré metrology of energy landscapes in van der
    Waals heterostructures.** *Nat. Commun.* **12**, 242 (2021).
-   [doi:10.1038/s41467-020-20428-1](https://doi.org/10.1038/s41467-020-20428-1)
+   [doi:10.1038/s41467-020-20428-1](https://www.nature.com/articles/s41467-020-20428-1)
    · [arXiv:2008.04835](https://arxiv.org/abs/2008.04835)
 
 2. Halbertal, D. *et al.* **Multilayered Atomic Relaxation in van der Waals
    Heterostructures.** *Phys. Rev. X* **13**, 011026 (2023).
-   [doi:10.1103/PhysRevX.13.011026](https://doi.org/10.1103/PhysRevX.13.011026)
+   [doi:10.1103/PhysRevX.13.011026](https://journals.aps.org/prx/abstract/10.1103/PhysRevX.13.011026)
    · [arXiv:2206.06395](https://arxiv.org/abs/2206.06395)
 
 3. Halbertal, D., Shabani, S., Pasupathy, A. N. & Basov, D. N.
    **Extracting the Strain Matrix and Twist Angle from the Moiré
    Superlattice in van der Waals Heterostructures.**
    *ACS Nano* **16**, 1471–1476 (2022).
-   [doi:10.1021/acsnano.1c09789](https://doi.org/10.1021/acsnano.1c09789)
+   [doi:10.1021/acsnano.1c09789](https://pubs.acs.org/doi/10.1021/acsnano.1c09789)
 
 4. Shabani, S., Halbertal, D., Wu, W., Chen, M., Liu, S., Hone, J.,
    Yao, W., Basov, D. N., Zhu, X. & Pasupathy, A. N. **Deep moiré
