@@ -65,7 +65,7 @@ from time import perf_counter
 import matplotlib.pyplot as plt
 import numpy as np
 
-from moire_metrology import GRAPHENE, SolverConfig
+from moire_metrology import GRAPHENE_GRAPHENE, SolverConfig
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 from moire_metrology.mesh import MoireMesh
 from moire_metrology.multilayer import LayerStack
@@ -118,7 +118,9 @@ def _load_cached_result() -> RelaxationResult | None:
 
     return RelaxationResult(
         mesh=mesh, geometry=geometry,
-        material1=GRAPHENE, material2=GRAPHENE,
+        moire_interface=GRAPHENE_GRAPHENE,
+        top_interface=None,
+        bottom_interface=GRAPHENE_GRAPHENE if N_BOTTOM > 1 else None,
         displacement_x1=data["displacement_x1"],
         displacement_y1=data["displacement_y1"],
         displacement_x2=data["displacement_x2"],
@@ -145,8 +147,11 @@ def _solve() -> RelaxationResult:
         display=True,
     )
     stack = LayerStack(
-        top=GRAPHENE, n_top=N_TOP,
-        bottom=GRAPHENE, n_bottom=N_BOTTOM,
+        moire_interface=GRAPHENE_GRAPHENE,
+        top_interface=GRAPHENE_GRAPHENE if N_TOP > 1 else None,
+        bottom_interface=GRAPHENE_GRAPHENE if N_BOTTOM > 1 else None,
+        n_top=N_TOP,
+        n_bottom=N_BOTTOM,
         theta_twist=THETA_TWIST,
     )
     print(stack.describe())

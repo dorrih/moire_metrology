@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .interfaces import Interface
 from .lattice import MoireGeometry
 from .materials import Material
 from .mesh import MoireMesh
@@ -21,12 +22,20 @@ class RelaxationResult:
         The computational mesh.
     geometry : MoireGeometry
         Moire geometry used in the calculation.
-    material1, material2 : Material
-        Materials for the two stacks.
+    moire_interface : Interface
+        The twisted A-B interface that drove the calculation. Carries
+        both materials (``moire_interface.top``, ``moire_interface.bottom``)
+        and the GSFE coefficients of the moire stacking.
+    top_interface : Interface or None
+        Homobilayer interface used inside the top flake when
+        ``nlayer1 > 1``. ``None`` for monolayer top flakes.
+    bottom_interface : Interface or None
+        Homobilayer interface used inside the bottom flake when
+        ``nlayer2 > 1``. ``None`` for monolayer bottom flakes.
     displacement_x1, displacement_y1 : ndarray, shape (nlayer1, Nv)
-        Displacement fields for stack 1 layers.
+        Displacement fields for the top flake (stack 1).
     displacement_x2, displacement_y2 : ndarray, shape (nlayer2, Nv)
-        Displacement fields for stack 2 layers.
+        Displacement fields for the bottom flake (stack 2).
     total_energy : float
         Total relaxed energy in meV/uc.
     unrelaxed_energy : float
@@ -34,9 +43,9 @@ class RelaxationResult:
     gsfe_map : ndarray, shape (Nv,)
         GSFE energy density at interface vertices (meV/nm^2).
     elastic_map1 : ndarray, shape (nlayer1, Nv)
-        Elastic energy density per layer in stack 1 (meV/nm^2).
+        Elastic energy density per layer in the top flake (meV/nm^2).
     elastic_map2 : ndarray, shape (nlayer2, Nv)
-        Elastic energy density per layer in stack 2 (meV/nm^2).
+        Elastic energy density per layer in the bottom flake (meV/nm^2).
     solution_vector : ndarray
         Raw optimizer solution vector.
     optimizer_result : object
@@ -45,8 +54,9 @@ class RelaxationResult:
 
     mesh: MoireMesh
     geometry: MoireGeometry
-    material1: Material
-    material2: Material
+    moire_interface: Interface
+    top_interface: Interface | None
+    bottom_interface: Interface | None
     displacement_x1: np.ndarray
     displacement_y1: np.ndarray
     displacement_x2: np.ndarray
@@ -58,6 +68,24 @@ class RelaxationResult:
     elastic_map2: np.ndarray
     solution_vector: np.ndarray
     optimizer_result: object
+
+    @property
+    def material1(self) -> Material:
+        """Top flake material (stack 1).
+
+        Convenience accessor — equivalent to ``self.moire_interface.top``.
+        Stack-1 / stack-2 numbering follows the internal solver
+        convention (stack 1 = top flake, stack 2 = bottom flake).
+        """
+        return self.moire_interface.top
+
+    @property
+    def material2(self) -> Material:
+        """Bottom flake material (stack 2).
+
+        Convenience accessor — equivalent to ``self.moire_interface.bottom``.
+        """
+        return self.moire_interface.bottom
 
     @property
     def nlayer1(self) -> int:
@@ -175,6 +203,7 @@ class RelaxationResult:
             delta=self.geometry.delta,
             alpha=self.geometry.lattice.alpha,
             theta0=self.geometry.lattice.theta0,
+            moire_interface_name=self.moire_interface.name,
             material1_name=self.material1.name,
             material2_name=self.material2.name,
         )

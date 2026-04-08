@@ -3,7 +3,12 @@
 import numpy as np
 import pytest
 
-from moire_metrology import RelaxationSolver, SolverConfig, GRAPHENE
+from moire_metrology import (
+    GRAPHENE,
+    GRAPHENE_GRAPHENE,
+    RelaxationSolver,
+    SolverConfig,
+)
 
 
 class TestPseudoDynamics:
@@ -17,12 +22,12 @@ class TestPseudoDynamics:
 
         cfg_newton = SolverConfig(method="newton", **common)
         res_newton = RelaxationSolver(cfg_newton).solve(
-            material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
         )
 
         cfg_pd = SolverConfig(method="pseudo_dynamics", **common)
         res_pd = RelaxationSolver(cfg_pd).solve(
-            material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
         )
 
         # Both should reduce energy from the unrelaxed state.
@@ -51,12 +56,12 @@ class TestPseudoDynamics:
 
         cfg_direct = SolverConfig(linear_solver="direct", **common)
         res_direct = RelaxationSolver(cfg_direct).solve(
-            material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
         )
 
         cfg_iter = SolverConfig(linear_solver="iterative", **common)
         res_iter = RelaxationSolver(cfg_iter).solve(
-            material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
         )
 
         # Both should reduce energy from the unrelaxed state.
@@ -89,7 +94,9 @@ class TestPseudoDynamics:
         # iterative solver and the constraint-aware hessp path.
         from moire_metrology.multilayer import LayerStack
         stack = LayerStack(
-            top=GRAPHENE, n_top=1, bottom=GRAPHENE, n_bottom=2, theta_twist=2.0,
+            moire_interface=GRAPHENE_GRAPHENE,
+            bottom_interface=GRAPHENE_GRAPHENE,
+            n_top=1, n_bottom=2, theta_twist=2.0,
         )
         result = stack.solve(cfg, fix_bottom=True)
 
@@ -109,8 +116,52 @@ class TestPseudoDynamics:
         )
         with pytest.raises(ValueError, match="Unknown linear_solver"):
             RelaxationSolver(cfg).solve(
-                material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0,
+                moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
             )
+
+
+class TestLegacyKwargsError:
+    """v0.1.0 callers should get a friendly redirect, not a confusing crash."""
+
+    def test_material1_material2_raises_with_helpful_message(self):
+        solver = RelaxationSolver(
+            SolverConfig(display=False, min_mesh_points=20, max_iter=10)
+        )
+        with pytest.raises(TypeError, match="GSFE has moved off Material and onto Interface"):
+            solver.solve(material1=GRAPHENE, material2=GRAPHENE, theta_twist=2.0)
+
+
+class TestCustomInterface:
+    """The new Interface API must support user-defined interfaces, not just bundled ones."""
+
+    def test_custom_homobilayer_interface_matches_bundled(self):
+        """A user-defined Interface with the same coefs as GRAPHENE_GRAPHENE
+        must produce identical results to the bundled one."""
+        from moire_metrology import Interface
+
+        custom = Interface(
+            name="Custom graphene homobilayer",
+            bottom=GRAPHENE,
+            top=GRAPHENE,
+            gsfe_coeffs=GRAPHENE_GRAPHENE.gsfe_coeffs,
+            stacking_func=GRAPHENE_GRAPHENE.stacking_func,
+            reference="user-defined",
+        )
+        cfg = SolverConfig(
+            method="L-BFGS-B", pixel_size=1.5, max_iter=80, gtol=1e-3,
+            display=False, min_mesh_points=30,
+        )
+        bundled = RelaxationSolver(cfg).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+        )
+        user = RelaxationSolver(cfg).solve(
+            moire_interface=custom, theta_twist=2.0,
+        )
+        # Same coefficients => same minimum, to floating-point precision.
+        np.testing.assert_allclose(
+            user.total_energy, bundled.total_energy, rtol=1e-12, atol=0,
+            err_msg="Custom interface produced different energy than bundled equivalent",
+        )
 
 
 class TestSolverBasic:
@@ -124,8 +175,7 @@ class TestSolverBasic:
         )
         solver = RelaxationSolver(config)
         result = solver.solve(
-            material1=GRAPHENE,
-            material2=GRAPHENE,
+            moire_interface=GRAPHENE_GRAPHENE,
             theta_twist=2.0,
         )
 
@@ -148,8 +198,7 @@ class TestSolverBasic:
         )
         solver = RelaxationSolver(config)
         result = solver.solve(
-            material1=GRAPHENE,
-            material2=GRAPHENE,
+            moire_interface=GRAPHENE_GRAPHENE,
             theta_twist=10.0,  # large angle, minimal relaxation
         )
 
@@ -163,8 +212,7 @@ class TestSolverBasic:
         config = SolverConfig(pixel_size=1.0, max_iter=100, display=False)
         solver = RelaxationSolver(config)
         result = solver.solve(
-            material1=GRAPHENE,
-            material2=GRAPHENE,
+            moire_interface=GRAPHENE_GRAPHENE,
             theta_twist=3.0,
         )
         assert np.all(result.gsfe_map >= -1e-10)
@@ -184,7 +232,7 @@ class TestEnergyGradient:
         mesh = MoireMesh.generate(geom, pixel_size=1.5)
         disc = Discretization(mesh, geom)
         conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=1)
-        gsfe = GSFESurface(GRAPHENE.gsfe_coeffs)
+        gsfe = GSFESurface(GRAPHENE_GRAPHENE.gsfe_coeffs)
 
         energy = RelaxationEnergy(
             disc=disc,

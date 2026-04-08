@@ -3,11 +3,11 @@
 import numpy as np
 import pytest
 
+from moire_metrology import Interface, Material
 from moire_metrology.discretization import Discretization, PinnedConstraints
 from moire_metrology.energy import RelaxationEnergy
 from moire_metrology.gsfe import GSFESurface
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
-from moire_metrology.materials import Material
 from moire_metrology.mesh import MoireMesh, generate_finite_mesh
 from moire_metrology.pinning import PinningMap
 from moire_metrology.solver import RelaxationSolver, SolverConfig
@@ -18,7 +18,14 @@ TBLG = Material(
     lattice_constant=0.247,
     bulk_modulus=69518.0,
     shear_modulus=47352.0,
+)
+
+TBLG_INTERFACE = Interface(
+    name="TBLG/TBLG (test)",
+    bottom=TBLG,
+    top=TBLG,
     gsfe_coeffs=(6.832, 4.064, -0.374, -0.095, 0.0, 0.0),
+    reference="hand-rolled test interface",
 )
 
 
@@ -30,7 +37,7 @@ def setup_periodic():
     mesh = MoireMesh.generate(geom, pixel_size=1.0)
     disc = Discretization(mesh, geom)
     conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=1)
-    gsfe = GSFESurface(TBLG.gsfe_coeffs)
+    gsfe = GSFESurface(TBLG_INTERFACE.gsfe_coeffs)
     return mesh, geom, disc, conv, gsfe
 
 
@@ -204,7 +211,7 @@ class TestConstrainedSolver:
                               gtol=1e-4, display=False)
         solver = RelaxationSolver(config)
         result = solver.solve(
-            material1=TBLG, material2=TBLG, theta_twist=2.0,
+            moire_interface=TBLG_INTERFACE, theta_twist=2.0,
             constraints=constraints,
         )
 
@@ -296,7 +303,7 @@ class TestFiniteMeshRelaxation:
             gtol=1e-4, display=False,
         )
         result = RelaxationSolver(cfg).solve(
-            material1=TBLG, material2=TBLG, theta_twist=2.0,
+            moire_interface=TBLG_INTERFACE, theta_twist=2.0,
             mesh=mesh, constraints=constraints,
         )
 
@@ -331,7 +338,7 @@ class TestFiniteMeshRelaxation:
         constraints = pins.build_constraints(conv, nlayer1=1, nlayer2=1)
 
         result = RelaxationSolver(cfg).solve(
-            material1=TBLG, material2=TBLG, theta_twist=2.0,
+            moire_interface=TBLG_INTERFACE, theta_twist=2.0,
             mesh=mesh, constraints=constraints,
         )
         # Verify the result mesh IS the one we passed in
