@@ -267,9 +267,19 @@ def _hbn_aap_stacking(k: int) -> tuple[float, float]:
 # Bundled interfaces
 # ---------------------------------------------------------------------------
 
-# --- Graphene/Graphene homobilayer (Zhou et al. DFT-D2) -------------------
-_gr_zhou = (21.336, -6.127, -1.128, 0.143, np.sqrt(3) * (-6.127), -np.sqrt(3) * 0.143)
-_gr_coeffs = _zhou_to_carr(_gr_zhou, 0.247, ab_ref=True)
+# --- Graphene/Graphene homobilayer ----------------------------------------
+#
+# GSFE coefficients are exact verbatim copies of Carr et al. PRB 98,
+# 224102 (2018), Table I, "Graphene" row. Carr's text states: "All
+# values are in units of meV per unit cell." Independently confirmed
+# in Halbertal et al. Nat. Commun. 12, 242 (2021), SI Table 1, "TBG"
+# column, which cites Carr Ref. 31. Verified against the Carr Table I
+# in docs_internal/carr2018.pdf.
+#
+# Earlier package versions ran an unnecessary Zhou->Carr transformation
+# that introduced ~3% drift on c0; this entry hard-codes the published
+# Carr values directly, eliminating the drift.
+_gr_coeffs = (6.832, 4.064, -0.374, -0.095, 0.0, 0.0)
 
 GRAPHENE_GRAPHENE = Interface(
     name="Graphene/Graphene",
@@ -277,10 +287,19 @@ GRAPHENE_GRAPHENE = Interface(
     top=GRAPHENE,
     gsfe_coeffs=_gr_coeffs,
     stacking_func=_graphene_stacking,
-    reference="Zhou et al., PRB 92, 155438 (2015), DFT-D2",
+    reference="Carr et al., PRB 98, 224102 (2018), Table I, "
+              "Graphene row. Cited in Halbertal et al. Nat. Commun. "
+              "12, 242 (2021), SI Table 1.",
 )
 
-# --- hBN AA homobilayer (Zhou et al. DFT-D2, AB-referenced) ---------------
+# --- hBN AA homobilayer ---------------------------------------------------
+#
+# GSFE: exact verbatim copy of Zhou et al. PRB 92, 155438 (2015),
+# Table III, "BN/BN-2" column (the centrosymmetric hBN/hBN stacking
+# whose Fourier expansion has c4 = √3·c1 and c5 = -√3·c3, encoded
+# below by passing ab_ref=True to _zhou_to_carr). Zhou's original
+# c0..c5 are in mJ/m²; the helper converts to meV/uc with α = 0.251 nm.
+# Verified against Zhou Table III by reading docs_internal/zhou2015.pdf.
 _hbn_aa_zhou = (
     28.454, -7.160, -0.496, -0.339,
     np.sqrt(3) * (-7.160), -np.sqrt(3) * (-0.339),
@@ -293,10 +312,18 @@ HBN_AA_HOMOBILAYER = Interface(
     top=HBN_AA,
     gsfe_coeffs=_hbn_aa_coeffs,
     stacking_func=_graphene_stacking,
-    reference="Zhou et al., PRB 92, 155438 (2015), DFT-D2",
+    reference="Zhou et al., PRB 92, 155438 (2015), Table III, "
+              "BN/BN-2 column (ACFDT-RPA fit)",
 )
 
-# --- hBN AA' homobilayer (breaks inversion symmetry, no AB ref) -----------
+# --- hBN AA' homobilayer --------------------------------------------------
+#
+# GSFE: exact verbatim copy of Zhou et al. PRB 92, 155438 (2015),
+# Table III, "BN/BN-1" column. The non-zero c4, c5 reflect the broken
+# inversion symmetry of the AA' stacking, so this entry passes
+# ab_ref=False to _zhou_to_carr (which only does the unit conversion,
+# no centrosymmetrization). Verified against Zhou Table III in
+# docs_internal/zhou2015.pdf.
 _hbn_aap_zhou = (31.584, -9.935, -0.918, 0.325, -7.848, 0.67)
 _hbn_aap_coeffs = _zhou_to_carr(_hbn_aap_zhou, 0.251, ab_ref=False)
 
@@ -306,16 +333,26 @@ HBN_AAP_HOMOBILAYER = Interface(
     top=HBN_AAP,
     gsfe_coeffs=_hbn_aap_coeffs,
     stacking_func=_hbn_aap_stacking,
-    reference="Zhou et al., PRB 92, 155438 (2015), DFT-D2",
+    reference="Zhou et al., PRB 92, 155438 (2015), Table III, "
+              "BN/BN-1 column (ACFDT-RPA fit)",
 )
 
 # --- Graphene/hBN heterointerface -----------------------------------------
 #
 # Replaces the v0.1.0 ``GRAPHENE_ON_HBN`` Material, which was a workaround
-# for the v0.1.0 single-GSFE-per-Material limitation. The hBN polytype
-# the Zhou et al. coefficients were fitted against is not stated in the
-# original docstring; defaulting to ``HBN_AA`` here. TODO: verify against
-# Zhou et al. PRB 92 and update if it's actually AA'.
+# for the v0.1.0 single-GSFE-per-Material limitation.
+#
+# GSFE: exact verbatim copy of Zhou et al. PRB 92, 155438 (2015),
+# Table III, "G/BN" column. The non-zero c4, c5 reflect the broken
+# inversion symmetry of any heterointerface, so this entry uses
+# ab_ref=False. Verified against Zhou Table III in
+# docs_internal/zhou2015.pdf.
+#
+# The hBN polytype designation (AA vs AA') applies to *bilayer hBN*
+# stacking, not to monolayer hBN — the G/BN GSFE is for graphene on
+# *one* hBN layer, so the hBN-side material can be either HBN_AA or
+# HBN_AAP. We pair with HBN_AA here as a convention; both Material
+# entries are physically identical for monolayer purposes.
 _gr_hbn_zhou = (39.222, -11.96, -0.748, -0.366, 1.640, 0.201)
 _gr_hbn_coeffs = _zhou_to_carr(_gr_hbn_zhou, 0.247, ab_ref=False)
 
@@ -325,7 +362,8 @@ GRAPHENE_HBN_INTERFACE = Interface(
     top=GRAPHENE,
     gsfe_coeffs=_gr_hbn_coeffs,
     stacking_func=None,
-    reference="Zhou et al., PRB 92, 155438 (2015), DFT-D2",
+    reference="Zhou et al., PRB 92, 155438 (2015), Table III, "
+              "G/BN column (ACFDT-RPA fit)",
 )
 
 # --- MoSe2/WSe2 H-stacked heterointerface ---------------------------------
@@ -348,7 +386,9 @@ MOSE2_WSE2_H_INTERFACE = Interface(
     gsfe_coeffs=_mose2_wse2_h_gsfe,
     stacking_func=None,
     reference="Shabani, Halbertal et al., Nat. Phys. 17, 720 (2021), "
-              "doi:10.1038/s41567-021-01174-7",
+              "doi:10.1038/s41567-021-01174-7, Methods section. "
+              "Independently confirmed in Halbertal et al. Nat. Commun. "
+              "12, 242 (2021), SI Table 1, MoSe2/WSe2 column.",
 )
 
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-08
+
 ### Added
 
 - **TOML loaders for `Material` and `Interface`.** Both dataclasses
@@ -26,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Interface?" pointer for GSFE on `Material`), wrong-length GSFE
   coefficients, non-numeric GSFE coefficients, and end-to-end
   numerical equivalence to the bundled equivalent.
+- **`Material.from_2d_moduli_n_per_m()` constructor** — accepts K, G
+  in literature-standard 2D N/m units (the convention used in
+  Lee et al. Science 2008 and most experimental papers) and converts
+  to the internal meV/uc convention. Lets future custom materials be
+  specified in their natural units without the user having to redo
+  the conversion arithmetic by hand.
+- **`Material.moduli_n_per_m` property** — round-trip helper that
+  returns `(K, G)` in N/m for sanity-checking existing materials
+  against published indentation values.
+- 9 new tests in `tests/test_elastic_units.py` covering the converter
+  round-trip, the lattice-constant scaling, and regression-locking
+  the corrected `GRAPHENE` parameters against the paper values.
 
 ### Fixed
 
@@ -36,6 +50,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still self-identify as `0.1.0`. The Zenodo archive of the v0.2.0
   tag is frozen with the wrong wheel metadata; this fix takes effect
   for the next release tag (v0.2.1 / v0.3.0).
+- **Graphene elastic moduli were wrong by a factor of ~8.** v0.1.0
+  and v0.2.0 shipped `GRAPHENE.bulk_modulus = 8595 meV/uc` and
+  `shear_modulus = 5765 meV/uc`, which round-trip to ~26 N/m and
+  ~17 N/m — far below the experimental literature value of ~211 N/m
+  (Lee et al. Science 321, 385 (2008)). The values were not from any
+  cited source and did not match the published Halbertal et al.
+  Nat. Commun. 12, 242 (2021) SI Table 1, which gives K=69518,
+  G=47352 meV/uc citing Carr et al. PRB 98, 224102 (2018). This
+  commit restores the paper values verbatim. **Any quantitative
+  graphene relaxation result from a previous version was using ~8×
+  too soft elastic constants and is biased toward over-relaxation
+  (domain walls too narrow, AA areas too small).**
+- **Graphene GSFE coefficients were ~3% drifted from the paper.**
+  The package derived them from a Zhou et al. starting point via
+  `_zhou_to_carr` and produced `(7.036, 4.041, -0.372, -0.094, 0, 0)`,
+  whereas the paper Table 1 gives `(6.832, 4.064, -0.374, -0.095, 0, 0)`
+  taken directly from Carr et al. with no transformation. This commit
+  hard-codes the literal Carr/paper values for graphene, eliminating
+  the drift.
+
+- **hBN elastic moduli now from Falin et al. Nat. Commun. 8, 15815
+  (2017).** v0.1.0 and v0.2.0 shipped `HBN_AA.bulk_modulus = 8595` and
+  `shear_modulus = 5765 meV/uc` — the same wrong-by-~8x values graphene
+  had, copy-pasted from the pre-fix `GRAPHENE` entry, with no hBN
+  source. They round-tripped to ~26 / ~17 N/m, which is physically
+  implausible for hBN. This commit replaces them with the literature-
+  derived values: Falin et al. report `E_3D = 0.865 ± 0.073 TPa` for
+  monolayer hBN by indentation, which gives `E_2D ≈ 286 N/m` using a
+  0.334 nm thickness. With `ν ≈ 0.21` (also Falin), the standard
+  isotropic 2D Lamé relations give `K_2D ≈ 181 N/m, G_2D ≈ 118 N/m`,
+  which the new `from_2d_moduli_n_per_m` constructor converts to
+  `K ≈ 61638 meV/uc, G ≈ 40252 meV/uc`. Both `HBN_AA` and `HBN_AAP`
+  now use these values; the AA / AA' designation is a stacking
+  convention for the *interface*, not a per-layer material property.
+- **All bundled materials and interfaces now have explicit literature
+  citations** as inline source comments AND as `reference=` strings on
+  the `Interface` entries. The hBN GSFE coefficients on
+  `HBN_AA_HOMOBILAYER`, `HBN_AAP_HOMOBILAYER`, and
+  `GRAPHENE_HBN_INTERFACE` were verified to be exact verbatim copies
+  of Zhou et al. PRB 92, 155438 (2015), Table III, by reading
+  `docs_internal/zhou2015.pdf` directly. The graphene K, G and GSFE
+  on `GRAPHENE` and `GRAPHENE_GRAPHENE` were verified against Carr et
+  al. PRB 98, 224102 (2018), Table I, by reading
+  `docs_internal/carr2018.pdf` directly. The MoSe2/WSe2 entries were
+  already verified against the Halbertal Nat. Commun. 2021 SI Table 1
+  and Shabani Nat. Phys. 2021 Methods section in the v0.2.0 work.
+  **The repo no longer contains any uncited material/interface
+  parameters.**
 
 ## [0.2.0] - 2026-04-08
 
@@ -142,5 +204,7 @@ Initial public release.
 - Strain extraction: alpha double-counting in the deformation matrix (#6).
 - Various bug fixes and example/README polish from the hardening pass.
 
-[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/dorrih/moire_metrology/releases/tag/v0.3.0
+[0.2.0]: https://github.com/dorrih/moire_metrology/releases/tag/v0.2.0
 [0.1.0]: https://github.com/dorrih/moire_metrology/releases/tag/v0.1.0
