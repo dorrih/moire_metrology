@@ -267,9 +267,15 @@ def _hbn_aap_stacking(k: int) -> tuple[float, float]:
 # Bundled interfaces
 # ---------------------------------------------------------------------------
 
-# --- Graphene/Graphene homobilayer (Zhou et al. DFT-D2) -------------------
-_gr_zhou = (21.336, -6.127, -1.128, 0.143, np.sqrt(3) * (-6.127), -np.sqrt(3) * 0.143)
-_gr_coeffs = _zhou_to_carr(_gr_zhou, 0.247, ab_ref=True)
+# --- Graphene/Graphene homobilayer ----------------------------------------
+#
+# GSFE coefficients are taken directly from Halbertal et al.
+# Nat. Commun. 12, 242 (2021), SI Table 1, "TBG" column, which in
+# turn cites Carr et al. PRB 98, 224102 (2018) for the original
+# Carr-basis values. The earlier package versions ran an unnecessary
+# Zhou->Carr transformation that introduced ~3% drift on c0; this
+# entry just hard-codes the published values, eliminating the drift.
+_gr_coeffs = (6.832, 4.064, -0.374, -0.095, 0.0, 0.0)
 
 GRAPHENE_GRAPHENE = Interface(
     name="Graphene/Graphene",
@@ -277,7 +283,8 @@ GRAPHENE_GRAPHENE = Interface(
     top=GRAPHENE,
     gsfe_coeffs=_gr_coeffs,
     stacking_func=_graphene_stacking,
-    reference="Zhou et al., PRB 92, 155438 (2015), DFT-D2",
+    reference="Carr et al., PRB 98, 224102 (2018), as cited in "
+              "Halbertal et al. Nat. Commun. 12, 242 (2021), SI Table 1",
 )
 
 # --- hBN AA homobilayer (Zhou et al. DFT-D2, AB-referenced) ---------------
