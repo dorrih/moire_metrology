@@ -1,0 +1,166 @@
+cff-version: 1.2.0
+message: >
+  If you use this software, please cite the primary methodology paper
+  (preferred-citation below). For specific features, also cite the
+  feature-specific paper from the references list: ACS Nano 2022 for
+  strain extraction, and Phys. Rev. X 2023 for multi-layered calculations.
+title: "moire_metrology"
+abstract: >
+  A Python package for moire relaxation, strain extraction, and multi-layer
+  analysis of two-dimensional moire superlattices.
+type: software
+authors:
+  - family-names: Halbertal
+    given-names: Dorri
+version: 0.1.0
+date-released: 2026-04-08
+license: MIT
+repository-code: "https://github.com/dorrih/moire_metrology"
+url: "https://github.com/dorrih/moire_metrology"
+keywords:
+  - moire
+  - 2D materials
+  - lattice relaxation
+  - strain extraction
+  - van der Waals heterostructures
+  - condensed matter physics
+
+preferred-citation:
+  type: article
+  title: "Moiré metrology of energy landscapes in van der Waals heterostructures"
+  authors:
+    - family-names: Halbertal
+      given-names: Dorri
+    - family-names: Finney
+      given-names: Nathan R.
+    - family-names: Sunku
+      given-names: Sai S.
+    - family-names: Kerelsky
+      given-names: Alexander
+    - family-names: Rubio-Verdú
+      given-names: Carmen
+    - family-names: Shabani
+      given-names: Sara
+    - family-names: Xian
+      given-names: Lede
+    - family-names: Carr
+      given-names: Stephen
+    - family-names: Chen
+      given-names: Shaowen
+    - family-names: Zhang
+      given-names: Charles
+    - family-names: Wang
+      given-names: Lei
+    - family-names: Gonzalez-Acevedo
+      given-names: Derick
+    - family-names: McLeod
+      given-names: Alexander S.
+    - family-names: Rhodes
+      given-names: Daniel
+    - family-names: Watanabe
+      given-names: Kenji
+    - family-names: Taniguchi
+      given-names: Takashi
+    - family-names: Kaxiras
+      given-names: Efthimios
+    - family-names: Dean
+      given-names: Cory R.
+    - family-names: Hone
+      given-names: James C.
+    - family-names: Pasupathy
+      given-names: Abhay N.
+    - family-names: Kennes
+      given-names: Dante M.
+    - family-names: Rubio
+      given-names: Angel
+    - family-names: Basov
+      given-names: D. N.
+  journal: "Nature Communications"
+  volume: 12
+  issue: 1
+  start: 242
+  year: 2021
+  doi: "10.1038/s41467-020-20428-1"
+  url: "https://doi.org/10.1038/s41467-020-20428-1"
+
+references:
+  - type: article
+    title: "Extracting the Strain Matrix and Twist Angle from the Moiré Superlattice in van der Waals Heterostructures"
+    authors:
+      - family-names: Halbertal
+        given-names: Dorri
+      - family-names: Shabani
+        given-names: Sara
+      - family-names: Pasupathy
+        given-names: Abhay N.
+      - family-names: Basov
+        given-names: D. N.
+    journal: "ACS Nano"
+    volume: 16
+    issue: 1
+    start: 1471
+    end: 1476
+    year: 2022
+    doi: "10.1021/acsnano.1c09789"
+    url: "https://doi.org/10.1021/acsnano.1c09789"
+
+  - type: article
+    title: "Multilayered Atomic Relaxation in van der Waals Heterostructures"
+    authors:
+      - family-names: Halbertal
+        given-names: Dorri
+      - family-names: Klebl
+        given-names: Lennart
+      - family-names: Hsieh
+        given-names: Valerie
+      - family-names: Cook
+        given-names: Jacob
+      - family-names: Carr
+        given-names: Stephen
+      - family-names: Bian
+        given-names: Guang
+      - family-names: Dean
+        given-names: Cory R.
+      - family-names: Kennes
+        given-names: Dante M.
+      - family-names: Basov
+        given-names: D. N.
+    journal: "Physical Review X"
+    volume: 13
+    issue: 1
+    start: "011026"
+    year: 2023
+    doi: "10.1103/PhysRevX.13.011026"
+    url: "https://link.aps.org/doi/10.1103/PhysRevX.13.011026"
+
+  - type: article
+    title: "Deep moiré potentials in twisted transition metal dichalcogenide bilayers"
+    authors:
+      - family-names: Shabani
+        given-names: Sara
+      - family-names: Halbertal
+        given-names: Dorri
+      - family-names: Wu
+        given-names: Wenjing
+      - family-names: Chen
+        given-names: Mingxing
+      - family-names: Liu
+        given-names: Song
+      - family-names: Hone
+        given-names: James
+      - family-names: Yao
+        given-names: Wang
+      - family-names: Basov
+        given-names: Dmitri N.
+      - family-names: Zhu
+        given-names: Xiaoyang
+      - family-names: Pasupathy
+        given-names: Abhay N.
+    journal: "Nature Physics"
+    volume: 17
+    issue: 6
+    start: 720
+    end: 725
+    year: 2021
+    doi: "10.1038/s41567-021-01174-7"
+    url: "https://doi.org/10.1038/s41567-021-01174-7"

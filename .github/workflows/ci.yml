@@ -66,6 +66,19 @@ jobs:
       - name: pytest (slow subset)
         run: pytest -q -m slow
 
+  citation:
+    name: validate CITATION.cff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install cffconvert
+        run: pip install cffconvert
+      - name: Validate CITATION.cff
+        run: cffconvert --validate -i CITATION.cff
+
   build:
     name: sdist + wheel
     runs-on: ubuntu-latest
