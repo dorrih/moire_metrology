@@ -15,11 +15,14 @@ authors:
 version: 0.1.0
 date-released: 2026-04-08
 license: MIT
-doi: "10.5281/zenodo.19468558"
+doi: "10.5281/zenodo.19468557"
 identifiers:
   - type: doi
-    value: "10.5281/zenodo.19468558"
+    value: "10.5281/zenodo.19468557"
     description: "Zenodo concept DOI — always resolves to the latest released version of the software."
+  - type: doi
+    value: "10.5281/zenodo.19468558"
+    description: "Zenodo version DOI for v0.1.0."
 repository-code: "https://github.com/dorrih/moire_metrology"
 url: "https://github.com/dorrih/moire_metrology"
 keywords:
