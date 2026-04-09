@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **`moire_metrology.strain.compute_strain_field` rewritten with the
+  validated paper-Fig-1 formula.** The v0.3.0 scaffolding version took
+  raw gradient arrays `(dIdx, dIdy, dJdx, dJdy)` and applied a closed-
+  form `du/dx, du/dy` solve that was never validated against the paper.
+  The new signature takes query coordinates and `RegistryField`
+  instances directly, evaluates the analytic gradients internally, and
+  recovers `(θ, ε_c, ε_s)` per point via the eq. 9 inversion of
+  Halbertal et al. ACS Nano 16, 1471 (2022) followed by the per-point
+  `get_strain` solver. Output keys are now `theta`, `eps_c`, `eps_s`
+  (plus `lambda1`, `lambda2`, `phi1_deg`, `phi2_deg`) — matching what
+  the paper figures plot. The old `eps_xx, eps_xy, eps_yy` keys are
+  gone. Validated end-to-end against the maintainer's MATLAB
+  spatial-extraction script and against paper Fig 1c-e on real
+  H-MoSe2/WSe2 polyline data.
+- **`compute_displacement_field` rewritten as a stacking-phase IC
+  builder.** Same motivation as above — the v0.3.0 version was
+  unvalidated scaffolding. The new signature takes a `MoireGeometry`
+  and a `target_stacking` (one of `"AA"`, `"AB"`, `"BA"`) and solves
+  `Mu @ u = (v0 - v_target)` per query point, where `v_target` comes
+  from the polynomial registry fit plus the constant phase offset that
+  puts integer registry sites at the requested stacking. Drops the
+  unused `dr` parameter.
+- **`FringeSet.fit_registry_fields` no longer resamples polylines.**
+  The `resample_density` parameter is gone; the fit now uses raw
+  polyline points only. Default `order` bumped from 8 to 11 to match
+  the paper Methods section. The previous spline-resampling code path
+  produced spurious 180° outliers at the data hull boundary on real
+  data — it was never validated and is removed.
+- **`theta0_deg` standardized to `phi0_deg`** across the spatial
+  strain functions, matching the paper notation and the existing
+  pointwise `get_strain(... phi0=...)` API.
+
+### Added
+
+- **`moire_metrology.strain.convex_hull_mask(data_x, data_y, qx, qy)`**
+  helper for confining queries to the convex hull of a registry fit's
+  training data. A high-degree polynomial extrapolates with rapid
+  growth outside its data support; this mask catches mesh vertices and
+  grid points that lie past the data extent before they produce
+  nonsense displacements or strain values.
+- **`tests/test_strain_spatial.py`** — 9 unit tests covering the
+  rewritten spatial strain API: rigid-twist registry → recovered
+  `|θ|` exact and zero strain; output shape preservation; the IC
+  realizes the `v_target` phase contract via `geom.stacking_phases`;
+  switching `target_stacking` adds a constant displacement offset;
+  unknown stacking → `ValueError`; convex hull classification.
+- **`examples/spatial_strain_extraction.py`** — new ~280-line
+  end-to-end example that loads a maintainer-only `.mat` polyline
+  file via `FringeSet.from_matlab`, fits the degree-11 registry
+  polynomials, masks to the data convex hull, and reproduces paper
+  Fig. 1c-e (`θ`, `ε_c`, `ε_s` maps) on real H-MoSe2/WSe2 data.
+  Recovered values match the paper qualitatively: `|θ|` ∈ [0.47°,
+  1.93°] mean 1.53°, ε_c std 0.11%, ε_s std 0.16%.
+
+### Notes
+
+- The natural extension of the spatial strain extraction example to a
+  *constrained relaxation* — driving `MOSE2_WSE2_H_INTERFACE`
+  relaxation from the polynomial-derived initial condition or from
+  pinning every traced polyline point at BA — was prototyped on this
+  branch but does not yet produce a clean equilibrium domain pattern.
+  The constant-θ relaxation framework needs more work to digest a
+  spatially varying twist field cleanly. Tracked as a follow-up
+  research thread; the strain extraction example stands on its own as
+  the API template.
+
 ## [0.3.0] - 2026-04-08
 
 ### Added

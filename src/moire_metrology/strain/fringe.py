@@ -1,7 +1,8 @@
-"""Moire fringe data loading and interpolation.
+"""Moire fringe data loading and registry-field fitting.
 
-Handles loading traced moire fringe data from various formats
-and converting to the registry field representation.
+Handles loading traced moire fringe data (polylines with integer
+registry indices) from various formats and fitting them with 2D
+polynomial registry fields.
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from scipy.interpolate import UnivariateSpline
 
 from .polynomial import RegistryField
 
@@ -61,26 +61,28 @@ class FringeSet:
 
     def fit_registry_fields(
         self,
-        order: int = 8,
-        resample_density: float = 5.0,
+        order: int = 11,
     ) -> tuple[RegistryField, RegistryField]:
         """Fit polynomial registry fields I(x,y) and J(x,y) to the fringe data.
+
+        The two families of fringes are fit independently, each using its
+        raw polyline points (one constraint per traced point) — this
+        matches the approach in the maintainer's MATLAB pipeline that
+        was validated against ACS Nano 16, 1471 (2022) Fig. 1.
 
         Parameters
         ----------
         order : int
-            Polynomial order for the 2D fit (default 8).
-        resample_density : float
-            Points per nm when resampling fringe curves (default 5.0).
+            Polynomial order for the 2D fit (default 11, matching the
+            paper Methods section).
 
         Returns
         -------
         I_field, J_field : RegistryField
             Polynomial fits to the I and J registry fields.
         """
-        # Collect all I-fringe and J-fringe data points
-        x_I, y_I, val_I = _collect_fringe_points(self.i_fringes, resample_density)
-        x_J, y_J, val_J = _collect_fringe_points(self.j_fringes, resample_density)
+        x_I, y_I, val_I = _collect_fringe_points(self.i_fringes)
+        x_J, y_J, val_J = _collect_fringe_points(self.j_fringes)
 
         I_field = RegistryField.fit(x_I, y_I, val_I, order=order)
         J_field = RegistryField.fit(x_J, y_J, val_J, order=order)
@@ -163,47 +165,21 @@ class FringeSet:
 
 def _collect_fringe_points(
     fringes: list[FringeLine],
-    resample_density: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Resample and collect all points from a list of fringes.
+    """Concatenate raw polyline points from a list of fringes.
 
-    Each fringe is resampled with cubic spline interpolation to ensure
-    uniform dense sampling along the curve.
+    Returns ``(x, y, value)`` arrays where each traced point becomes one
+    constraint ``field(x_i, y_i) = fringe.index``.
     """
-    all_x, all_y, all_val = [], [], []
-
-    for fringe in fringes:
-        if len(fringe.x) < 2:
-            continue
-
-        # Compute cumulative arc length
-        dx = np.diff(fringe.x)
-        dy = np.diff(fringe.y)
-        ds = np.sqrt(dx**2 + dy**2)
-        s = np.concatenate([[0], np.cumsum(ds)])
-        total_length = s[-1]
-
-        if total_length < 1e-10:
-            continue
-
-        # Resample with spline interpolation
-        n_resample = max(int(total_length * resample_density), 2)
-        s_new = np.linspace(0, total_length, n_resample)
-
-        try:
-            spline_x = UnivariateSpline(s, fringe.x, k=min(3, len(s) - 1), s=0)
-            spline_y = UnivariateSpline(s, fringe.y, k=min(3, len(s) - 1), s=0)
-            x_new = spline_x(s_new)
-            y_new = spline_y(s_new)
-        except Exception:
-            x_new = np.interp(s_new, s, fringe.x)
-            y_new = np.interp(s_new, s, fringe.y)
-
-        all_x.append(x_new)
-        all_y.append(y_new)
-        all_val.append(np.full(n_resample, fringe.index, dtype=float))
-
-    if not all_x:
+    if not fringes:
         return np.array([]), np.array([]), np.array([])
 
-    return np.concatenate(all_x), np.concatenate(all_y), np.concatenate(all_val)
+    xs = [f.x for f in fringes if len(f.x) > 0]
+    ys = [f.y for f in fringes if len(f.x) > 0]
+    vals = [
+        np.full(len(f.x), f.index, dtype=float)
+        for f in fringes if len(f.x) > 0
+    ]
+    if not xs:
+        return np.array([]), np.array([]), np.array([])
+    return np.concatenate(xs), np.concatenate(ys), np.concatenate(vals)
