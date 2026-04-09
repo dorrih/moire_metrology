@@ -306,148 +306,187 @@ def shear_strain_invariant(
     return float(alpha * r_minus / denom)
 
 
-def compute_displacement_field(
+def compute_strain_field(
     x: np.ndarray,
     y: np.ndarray,
-    I_field: np.ndarray,
-    J_field: np.ndarray,
-    theta_deg: float,
-    theta0_deg: float,
-    alpha: float,
-    delta: float = 0.0,
-    dr: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute displacement field u(x,y) from registry fields I(x,y), J(x,y).
+    I_field,
+    J_field,
+    alpha1: float,
+    alpha2: float,
+    phi0_deg: float,
+) -> dict[str, np.ndarray]:
+    """Compute the spatially-varying strain field from registry polynomials.
+
+    Implements the spatial extension of the ACS Nano paper strain
+    inversion. At each query point, the local moiré reciprocal lattice
+    vectors are obtained from the polynomial fit gradients via eq. 9:
+
+        [v1(r), v2(r)] = inv([∇I(r); ∇J(r)])
+
+    yielding `(λ1, λ2, φ1, φ2)` at every point. The pointwise
+    :func:`get_strain` is then called with a global ``phi0_deg`` to
+    recover `(θ, ε_c, ε_s)` per point.
 
     Parameters
     ----------
     x, y : ndarray
-        Spatial coordinates (nm).
-    I_field, J_field : ndarray
-        Registry field values at each (x, y) point.
-    theta_deg : float
-        Twist angle (degrees).
-    theta0_deg : float
-        Lattice orientation angle (degrees).
-    alpha : float
-        Lattice constant (nm).
-    delta : float
-        Lattice mismatch.
-    dr : ndarray, shape (2,), or None
-        Translation offset [dx, dy] in nm.
+        Query coordinates (nm), of any common shape.
+    I_field, J_field : RegistryField
+        Polynomial fits of the moire registry index fields, with
+        analytic ``dx`` / ``dy`` evaluators (e.g.
+        :class:`moire_metrology.strain.RegistryField`).
+    alpha1, alpha2 : float
+        Lattice constants of the two layers (nm). Convention follows
+        :func:`get_strain` — ``alpha2`` is the larger of the two for
+        the H-MoSe2/WSe2 sample reproduced in the paper.
+    phi0_deg : float
+        Substrate lattice orientation angle (degrees), held constant
+        across the field. The paper uses a global ``φ0`` rather than
+        a per-point one.
+
+    Returns
+    -------
+    dict
+        Keys ``theta``, ``eps_c``, ``eps_s``, ``lambda1``, ``lambda2``,
+        ``phi1_deg``, ``phi2_deg``, each of the same shape as ``x``.
+    """
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    shape = x_arr.shape
+    xf = x_arr.ravel()
+    yf = y_arr.ravel()
+
+    dIdx = I_field.dx(xf, yf)
+    dIdy = I_field.dy(xf, yf)
+    dJdx = J_field.dx(xf, yf)
+    dJdy = J_field.dy(xf, yf)
+
+    # Eq. 9 of the ACS Nano paper (matches MATLAB
+    # strain_extraction_2D_spatial_ver2.m lines 179-183 with no global
+    # sign flip):
+    #     v1 = ( dJ/dy / D, -dJ/dx / D )
+    #     v2 = (-dI/dy / D,  dI/dx / D )
+    D = dIdx * dJdy - dIdy * dJdx
+    v1x = dJdy / D
+    v1y = -dJdx / D
+    v2x = -dIdy / D
+    v2y = dIdx / D
+
+    lambda1 = np.hypot(v1x, v1y)
+    lambda2 = np.hypot(v2x, v2y)
+    phi1_deg = np.degrees(np.arctan2(v1y, v1x))
+    phi2_deg = np.degrees(np.arctan2(v2y, v2x))
+
+    n = xf.size
+    theta = np.empty(n)
+    eps_c = np.empty(n)
+    eps_s = np.empty(n)
+    for k in range(n):
+        sr = get_strain(
+            alpha1=alpha1, alpha2=alpha2,
+            lambda1=float(lambda1[k]), lambda2=float(lambda2[k]),
+            phi1_deg=float(phi1_deg[k]), phi2_deg=float(phi2_deg[k]),
+            phi0=phi0_deg,
+        )
+        theta[k] = sr.theta_twist
+        eps_c[k] = sr.eps_c
+        eps_s[k] = sr.eps_s
+
+    return {
+        "theta": theta.reshape(shape),
+        "eps_c": eps_c.reshape(shape),
+        "eps_s": eps_s.reshape(shape),
+        "lambda1": lambda1.reshape(shape),
+        "lambda2": lambda2.reshape(shape),
+        "phi1_deg": phi1_deg.reshape(shape),
+        "phi2_deg": phi2_deg.reshape(shape),
+    }
+
+
+def compute_displacement_field(
+    x: np.ndarray,
+    y: np.ndarray,
+    I_field,
+    J_field,
+    geometry,
+    target_stacking: str = "BA",
+    remove_mean: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a displacement field from polynomial registry fits.
+
+    The pointwise pinning machinery in :mod:`moire_metrology.pinning`
+    solves ``Mu @ u = -(v_target - v0)`` at individual sites to put a
+    given mesh vertex at a chosen stacking. This function does the same
+    solve at every query point ``(x, y)``, but with ``v_target`` coming
+    from a continuous polynomial fit of the registry fields rather than
+    discrete pin assignments. The result is a smooth displacement field
+    suitable as the initial condition for relaxation against an
+    experimentally measured moiré pattern.
+
+    The target phase at each point is
+
+        v_target(r) = 2π · I(r) + v_offset
+        w_target(r) = 2π · J(r) + w_offset
+
+    where ``(v_offset, w_offset)`` is the constant phase shift from
+    :data:`moire_metrology.pinning.STACKING_PHASES` that puts integer
+    ``(I, J)`` data sites at the requested ``target_stacking`` (e.g.
+    ``"BA"`` is the global GSFE minimum for H-stacked TMDs).
+
+    Parameters
+    ----------
+    x, y : ndarray
+        Query coordinates (nm), of any common shape.
+    I_field, J_field : RegistryField
+        Polynomial fits of the moire registry index fields.
+    geometry : MoireGeometry
+        The average moire geometry. Provides ``stacking_phases`` and
+        ``Mu1`` for the per-point linear solve.
+    target_stacking : str
+        One of ``"AA"``, ``"AB"``, ``"BA"``. Default ``"BA"``.
+    remove_mean : bool
+        If True, subtract the mean of the resulting displacement so the
+        global translation gauge is fixed at zero. Default True.
 
     Returns
     -------
     ux, uy : ndarray
-        Displacement field components (nm).
+        Displacement field components (nm), of the same shape as ``x``.
+
+    Notes
+    -----
+    The polynomial fits are unconstrained outside the convex hull of
+    their training data and grow rapidly there. Mask the query points
+    with :func:`convex_hull_mask` before calling this function on a
+    mesh that extends past the data extent.
     """
-    theta = np.radians(theta_deg)
-    theta0 = np.radians(theta0_deg)
+    from ..pinning import STACKING_PHASES
 
-    if dr is None:
-        dr = np.zeros(2)
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    shape = x_arr.shape
+    xf = x_arr.ravel()
+    yf = y_arr.ravel()
 
-    ct, st = cos(theta), sin(theta)
-    Rminus = np.array([[cos(-theta), -sin(-theta)], [sin(-theta), cos(-theta)]])
+    if target_stacking not in STACKING_PHASES:
+        raise ValueError(
+            f"Unknown stacking '{target_stacking}'. "
+            f"Use one of: {list(STACKING_PHASES)}"
+        )
+    v_off, w_off = STACKING_PHASES[target_stacking]
 
-    b1b2 = alpha * np.array([
-        [cos(theta0), cos(theta0 + pi / 3)],
-        [sin(theta0), sin(theta0 + pi / 3)],
-    ])
+    v0, w0 = geometry.stacking_phases(xf, yf)
+    v_target = 2.0 * pi * I_field(xf, yf) + v_off
+    w_target = 2.0 * pi * J_field(xf, yf) + w_off
 
-    # Prefactor matrices
-    A = np.linalg.inv(Rminus + (1.0 + delta) * np.eye(2))
-    B_minus = Rminus - (1.0 + delta) * np.eye(2)
+    Mu = geometry.Mu1
+    rhs = np.stack([v0 - v_target, w0 - w_target], axis=0)  # (2, N)
+    u = np.linalg.solve(Mu, rhs)  # (2, N)
+    ux = u[0]
+    uy = u[1]
 
-    dr_tilde = (np.eye(2) - (1.0 + delta) * np.array([[ct, -st], [st, ct]])) @ dr
+    if remove_mean and ux.size > 0:
+        ux = ux - ux.mean()
+        uy = uy - uy.mean()
 
-    # Compute displacement at each point
-    r = np.stack([x, y], axis=0)  # (2, N)
-    IJ = np.stack([I_field, J_field], axis=0)  # (2, N)
-
-    u = A @ (2.0 * B_minus @ r - 2.0 * b1b2 @ IJ - 2.0 * Rminus @ dr_tilde[:, None])
-
-    return u[0], u[1]
-
-
-def compute_strain_field(
-    dIdx: np.ndarray,
-    dIdy: np.ndarray,
-    dJdx: np.ndarray,
-    dJdy: np.ndarray,
-    theta_deg: float,
-    theta0_deg: float,
-    alpha: float,
-    delta: float = 0.0,
-) -> dict[str, np.ndarray]:
-    """Compute strain tensor from registry field gradients.
-
-    Parameters
-    ----------
-    dIdx, dIdy, dJdx, dJdy : ndarray
-        Spatial derivatives of the registry fields I(x,y) and J(x,y).
-    theta_deg, theta0_deg : float
-        Twist and lattice orientation angles (degrees).
-    alpha : float
-        Lattice constant (nm).
-    delta : float
-        Lattice mismatch.
-
-    Returns
-    -------
-    dict with keys:
-        'eps_xx', 'eps_xy', 'eps_yy': Strain tensor components.
-        'eps1', 'eps2': Principal strains at each point.
-        'strain_angle': Principal strain axis angle (degrees).
-    """
-    theta = np.radians(theta_deg)
-    theta0 = np.radians(theta0_deg)
-
-    Rminus = np.array([[cos(-theta), -sin(-theta)], [sin(-theta), cos(-theta)]])
-    b1b2 = alpha * np.array([
-        [cos(theta0), cos(theta0 + pi / 3)],
-        [sin(theta0), sin(theta0 + pi / 3)],
-    ])
-
-    A = np.linalg.inv(Rminus + (1.0 + delta) * np.eye(2))
-    B_minus = Rminus - (1.0 + delta) * np.eye(2)
-
-    # du/dx = A @ (2*B_minus @ [1;0] - 2*b1b2 @ [dI/dx; dJ/dx])
-    e_x = np.array([[1.0], [0.0]])
-    e_y = np.array([[0.0], [1.0]])
-
-    term_x_const = 2.0 * B_minus @ e_x  # (2, 1)
-    term_y_const = 2.0 * B_minus @ e_y
-
-    # Per-point derivatives
-    dIJdx = np.stack([dIdx, dJdx], axis=0)  # (2, N)
-    dIJdy = np.stack([dIdy, dJdy], axis=0)
-
-    dudx = A @ (term_x_const - 2.0 * b1b2 @ dIJdx)  # (2, N)
-    dudy = A @ (term_y_const - 2.0 * b1b2 @ dIJdy)
-
-    eps_xx = dudx[0]  # dux/dx
-    eps_yy = dudy[1]  # duy/dy
-    eps_xy = 0.5 * (dudx[1] + dudy[0])  # 0.5*(duy/dx + dux/dy)
-
-    # Principal strains
-    trace = eps_xx + eps_yy
-    det = eps_xx * eps_yy - eps_xy**2
-    discriminant = np.maximum(trace**2 - 4.0 * det, 0.0)
-    d = np.sqrt(discriminant)
-
-    eps1 = (trace + d) / 2.0
-    eps2 = (trace - d) / 2.0
-    strain_angle = np.degrees(np.arctan2(eps_xy, eps_xx - 0.5 * (eps1 + eps2)))
-
-    # Wrap angle to [0, 180)
-    strain_angle = strain_angle % 180.0
-
-    return {
-        "eps_xx": eps_xx,
-        "eps_xy": eps_xy,
-        "eps_yy": eps_yy,
-        "eps1": eps1,
-        "eps2": eps2,
-        "strain_angle": strain_angle,
-    }
+    return ux.reshape(shape), uy.reshape(shape)

@@ -3,13 +3,12 @@
 import numpy as np
 
 from moire_metrology.strain import (
-    get_strain,
-    get_strain_axis,
-    get_strain_minimize_compression,
-    compute_strain_field,
     FringeLine,
     FringeSet,
     RegistryField,
+    get_strain,
+    get_strain_axis,
+    get_strain_minimize_compression,
 )
 
 
@@ -252,23 +251,3 @@ class TestFringeSet:
         np.testing.assert_allclose(wl, spacing, rtol=0.05)
 
 
-class TestComputeStrainField:
-    def test_uniform_registry(self):
-        """Uniform registry gradients should give uniform strain."""
-        N = 100
-        # Constant gradients: dI/dx = a, dJ/dy = b
-        dIdx = np.full(N, 0.1)
-        dIdy = np.zeros(N)
-        dJdx = np.zeros(N)
-        dJdy = np.full(N, 0.1)
-
-        result = compute_strain_field(
-            dIdx, dIdy, dJdx, dJdy,
-            theta_deg=2.0, theta0_deg=0.0,
-            alpha=0.247, delta=0.0,
-        )
-
-        # All values should be identical (uniform strain)
-        assert np.std(result["eps_xx"]) < 1e-10
-        assert np.std(result["eps_yy"]) < 1e-10
-        assert np.std(result["eps_xy"]) < 1e-10
