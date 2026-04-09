@@ -11,13 +11,16 @@ from __future__ import annotations
 
 import numpy as np
 
+from moire_metrology.discretization import Discretization
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
+from moire_metrology.mesh import generate_finite_mesh
 from moire_metrology.pinning import STACKING_PHASES
 from moire_metrology.strain import (
     RegistryField,
     compute_displacement_field,
     compute_strain_field,
     convex_hull_mask,
+    displacement_from_strain_field,
 )
 
 
@@ -80,6 +83,10 @@ class TestComputeStrainField:
         np.testing.assert_allclose(np.abs(result["theta"]), theta_in, atol=1e-8)
         np.testing.assert_allclose(result["eps_c"], 0.0, atol=1e-10)
         np.testing.assert_allclose(result["eps_s"], 0.0, atol=1e-10)
+        # The strain tensor is also zero for a rigid twist.
+        np.testing.assert_allclose(result["S11"], 0.0, atol=1e-10)
+        np.testing.assert_allclose(result["S12"], 0.0, atol=1e-10)
+        np.testing.assert_allclose(result["S22"], 0.0, atol=1e-10)
 
     def test_uniform_field_is_uniform(self):
         """A linear registry field has constant gradients, so the
@@ -109,6 +116,8 @@ class TestComputeStrainField:
             alpha1=0.246, alpha2=0.246, phi0_deg=0.0,
         )
         for key in ("theta", "eps_c", "eps_s",
+                    "S11", "S12", "S22",
+                    "eps1", "eps2", "strain_angle",
                     "lambda1", "lambda2", "phi1_deg", "phi2_deg"):
             assert result[key].shape == Xq.shape, key
 
@@ -200,6 +209,119 @@ class TestComputeDisplacementField:
                 np.array([0.0]), np.array([0.0]),
                 I_field, J_field, geom, target_stacking="BOGUS",
             )
+
+
+class TestDisplacementFromStrainField:
+    """Round-trip tests for the gradient-integration IC builder.
+
+    The helper takes target ``(δθ(r), S(r))`` and integrates the
+    implied ``∂u/∂r`` field on the FEM mesh. For a target ``u`` field
+    that is *exactly affine* (constant gradients), the integrator
+    should reproduce ``u`` exactly up to a global translation gauge
+    constant — there's nothing to least-squares away.
+    """
+
+    def _build_mesh_disc(self, theta_avg_deg: float = 1.5):
+        """A small finite mesh + discretization for these tests."""
+        lattice = HexagonalLattice(alpha=0.3282, theta0=0.0)
+        geom = MoireGeometry(lattice, theta_twist=theta_avg_deg, delta=0.00183)
+        mesh = generate_finite_mesh(geom, n_cells=4, pixel_size=2.0)
+        disc = Discretization(mesh, geom)
+        return mesh, disc, geom
+
+    def test_pure_strain_no_rotation(self):
+        """Affine `u(r)` with pure strain (no local twist deviation):
+        ux = a*x + b*y, uy = b*x + d*y. Symmetric ∂u/∂r → δθ = 0."""
+        mesh, disc, _ = self._build_mesh_disc()
+        a, b, d = 0.001, 0.0003, -0.0005
+
+        x = mesh.points[0]
+        y = mesh.points[1]
+        ux_target = a * x + b * y
+        uy_target = b * x + d * y
+
+        Nv = mesh.n_vertices
+        S11 = np.full(Nv, a)
+        S22 = np.full(Nv, d)
+        S12 = np.full(Nv, b)
+        theta = np.full(Nv, 1.5)  # = theta_avg, so δθ = 0
+
+        ux, uy = displacement_from_strain_field(
+            disc,
+            theta_deg=theta, theta_avg_deg=1.5,
+            S11=S11, S12=S12, S22=S22,
+            pin_vertex=0,
+        )
+        # Match up to a global translation: align by setting
+        # u(pin_vertex) of the target to zero.
+        ux_aligned = ux_target - ux_target[0]
+        uy_aligned = uy_target - uy_target[0]
+        np.testing.assert_allclose(ux, ux_aligned, atol=1e-9)
+        np.testing.assert_allclose(uy, uy_aligned, atol=1e-9)
+
+    def test_pure_rotation_no_strain(self):
+        """Affine u with pure rotation: ux = -ω*y, uy = +ω*x.
+        Antisymmetric ∂u/∂r → S = 0, δθ = ω (in radians)."""
+        mesh, disc, _ = self._build_mesh_disc()
+        omega_rad = np.radians(0.05)  # 0.05° local twist deviation
+
+        x = mesh.points[0]
+        y = mesh.points[1]
+        ux_target = -omega_rad * y
+        uy_target = +omega_rad * x
+
+        Nv = mesh.n_vertices
+        S11 = np.zeros(Nv)
+        S22 = np.zeros(Nv)
+        S12 = np.zeros(Nv)
+        theta_avg_deg = 1.5
+        theta = np.full(Nv, theta_avg_deg + 0.05)  # δθ = +0.05°
+
+        ux, uy = displacement_from_strain_field(
+            disc,
+            theta_deg=theta, theta_avg_deg=theta_avg_deg,
+            S11=S11, S12=S12, S22=S22,
+            pin_vertex=0,
+        )
+        ux_aligned = ux_target - ux_target[0]
+        uy_aligned = uy_target - uy_target[0]
+        np.testing.assert_allclose(ux, ux_aligned, atol=1e-9)
+        np.testing.assert_allclose(uy, uy_aligned, atol=1e-9)
+
+    def test_general_affine(self):
+        """Affine u with both strain and rotation. Verifies that the
+        integrator correctly disentangles symmetric and antisymmetric
+        gradient components and pins down the eps=0.5 partition factor."""
+        mesh, disc, _ = self._build_mesh_disc()
+        # u_x = a*x + b*y, u_y = c*x + d*y
+        # symmetric: S11=a, S22=d, S12=(b+c)/2
+        # rotation: δθ = (c - b)/2
+        a, b, c, d = 0.0008, 0.0003, -0.0002, -0.0006
+
+        x = mesh.points[0]
+        y = mesh.points[1]
+        ux_target = a * x + b * y
+        uy_target = c * x + d * y
+
+        Nv = mesh.n_vertices
+        S11 = np.full(Nv, a)
+        S22 = np.full(Nv, d)
+        S12 = np.full(Nv, 0.5 * (b + c))
+        delta_theta_rad = 0.5 * (c - b)
+        delta_theta_deg = np.degrees(delta_theta_rad)
+        theta_avg_deg = 1.5
+        theta = np.full(Nv, theta_avg_deg + delta_theta_deg)
+
+        ux, uy = displacement_from_strain_field(
+            disc,
+            theta_deg=theta, theta_avg_deg=theta_avg_deg,
+            S11=S11, S12=S12, S22=S22,
+            pin_vertex=0,
+        )
+        ux_aligned = ux_target - ux_target[0]
+        uy_aligned = uy_target - uy_target[0]
+        np.testing.assert_allclose(ux, ux_aligned, atol=1e-9)
+        np.testing.assert_allclose(uy, uy_aligned, atol=1e-9)
 
 
 class TestConvexHullMask:

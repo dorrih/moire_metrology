@@ -55,13 +55,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   realizes the `v_target` phase contract via `geom.stacking_phases`;
   switching `target_stacking` adds a constant displacement offset;
   unknown stacking → `ValueError`; convex hull classification.
-- **`examples/spatial_strain_extraction.py`** — new ~280-line
-  end-to-end example that loads a maintainer-only `.mat` polyline
-  file via `FringeSet.from_matlab`, fits the degree-11 registry
-  polynomials, masks to the data convex hull, and reproduces paper
-  Fig. 1c-e (`θ`, `ε_c`, `ε_s` maps) on real H-MoSe2/WSe2 data.
-  Recovered values match the paper qualitatively: `|θ|` ∈ [0.47°,
-  1.93°] mean 1.53°, ε_c std 0.11%, ε_s std 0.16%.
+- **`compute_strain_field` now also returns the full strain tensor.**
+  Output dict gains `S11`, `S12`, `S22` (symmetric strain tensor in
+  the global `(x, y)` frame) plus `eps1`, `eps2`, `strain_angle`
+  (principal strains and axis). The previously returned `theta`,
+  `eps_c`, `eps_s`, `lambda*`, `phi*_deg` keys are unchanged. The
+  new components are the natural inputs to a gradient-integration
+  IC builder for the relaxation framework.
+- **`displacement_from_strain_field(disc, theta_deg, theta_avg_deg,
+  S11, S12, S22, pin_vertex)`** — new helper that integrates a target
+  local twist + strain field on the FEM mesh into a displacement field
+  `u(r)` in the relaxation framework's native language. Implementation
+  is a sparse least-squares Poisson reconstruction:
+  `[Dx; Dy] @ u_x = (S11; S12 - δθ)` and similarly for `u_y`, with
+  one vertex pinned to fix the global translation gauge. The eps=0.5
+  layer-partition factor was confirmed against `energy.py` /
+  `discretization.py` (factor of 1 on both rotation and strain).
+  Where the previous pointwise phase-matching IC built a step
+  discontinuity in `u` at the data hull boundary (cliff that the
+  elastic energy hated), the gradient-integration IC has continuous
+  `u(r)` everywhere.
+- **`examples/spatial_strain_extraction.py` → `examples/spatial_strain_relaxation.py`,
+  re-extended with the relaxation step.** The example now uses
+  `displacement_from_strain_field` to build the IC from the strain
+  extraction output (with the strain field zeroed outside the data
+  convex hull, so the integrated `u` smoothly relaxes to the average
+  configuration there), then runs Newton relaxation against
+  `MOSE2_WSE2_H_INTERFACE` with three-sublattice pinning (AA + BA +
+  AB sites from the polynomial registry fit). Headline figure has 4
+  panels: paper Fig 1c-e plus the relaxed stacking-energy density
+  showing the equilibrium domain pattern aligned with the traced
+  polylines.
 - **`examples/hbn_relaxation.py`** — bundled example demonstrating
   the graphene/hBN heterointerface relaxation. Headline case is
   θ = 0° (pure lattice-mismatch moiré, λ ≈ 15.75 nm), where the
@@ -82,18 +106,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Shabani / Halbertal Nat. Phys. 17, 720 (2021).
 - README *Quick start* section now points at all three bundled
   example scripts (graphene + hBN + TMD).
-
-### Notes
-
-- The natural extension of the spatial strain extraction example to a
-  *constrained relaxation* — driving `MOSE2_WSE2_H_INTERFACE`
-  relaxation from the polynomial-derived initial condition or from
-  pinning every traced polyline point at BA — was prototyped on this
-  branch but does not yet produce a clean equilibrium domain pattern.
-  The constant-θ relaxation framework needs more work to digest a
-  spatially varying twist field cleanly. Tracked as a follow-up
-  research thread; the strain extraction example stands on its own as
-  the API template.
+- **Modified-Hessian Newton solver** — flips negative eigenvalues of
+  the per-vertex 2×2 GSFE Hessian blocks before assembly. The GSFE
+  curvature at AA sites has eigenvalues down to -3.9×10⁶; the old
+  scalar Levenberg-Marquardt damping couldn't compensate efficiently.
+  The per-vertex flip produces a globally PD Hessian, enabling
+  meaningful Newton steps from iteration 1. Converges 3× faster than
+  `pseudo_dynamics` in the early phase.
+- **3 new round-trip tests** in `tests/test_strain_spatial.py` for
+  `displacement_from_strain_field`: pure strain, pure rotation, and
+  general affine `u`. The integrator reconstructs the target field
+  exactly (up to the global translation gauge), pinning down the
+  partition-factor convention concretely.
 
 ## [0.3.0] - 2026-04-08
 
