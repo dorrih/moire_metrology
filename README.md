@@ -92,6 +92,15 @@ pattern (low twist, AA vortices over AB/BA domains), see
 The example caches the relaxed state to a `.npz` so you can iterate on plots
 without re-solving.
 
+Two additional bundled examples cover the heterointerface cases:
+[`examples/hbn_relaxation.py`](examples/hbn_relaxation.py) — graphene
+on hBN, where the 1.6% lattice mismatch drives a single-minimum
+hexagonal moiré pattern even at zero twist; and
+[`examples/tmd_heterostructure.py`](examples/tmd_heterostructure.py) —
+H-stacked MoSe2/WSe2, where the deep moiré potential and broken
+inversion symmetry give a three-minimum domain pattern with sharp
+boundaries. Both run end-to-end in well under a minute.
+
 ### Strain extraction from a measured moire
 
 ```python
