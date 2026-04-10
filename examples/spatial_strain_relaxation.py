@@ -80,6 +80,7 @@ from moire_metrology import (
 from moire_metrology.discretization import Discretization
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 from moire_metrology.mesh import MoireMesh, generate_finite_mesh
+from moire_metrology.pinning import PinningMap
 from moire_metrology.plotting import plot_scalar_field
 from moire_metrology.strain import (
     FringeSet,
@@ -111,9 +112,11 @@ ALPHA2 = MOSE2.lattice_constant  # 0.3288 nm
 #: Strain map grid resolution for the headline figure.
 N_GRID = 100
 
-#: Mesh sizing for the relaxation step.
+#: Mesh sizing for the relaxation step. Domain walls for H-MoSe2/WSe2
+#: are ~8 nm wide (α√(K/V_gsfe)), so pixel_size must be ≤2 nm to
+#: resolve them with ≥4 mesh cells across the wall.
 N_CELLS = 55
-PIXEL_SIZE = 4.0
+PIXEL_SIZE = 2.0
 
 #: Pseudo-dynamics iteration cap. Empirically, the relaxation hits a
 #: numerical-noise plateau around iter 60-70 on this dataset; running
@@ -443,18 +446,84 @@ def main() -> None:
         n_inside = int(mesh_inside.sum())
         print(f"  {n_inside}/{mesh.n_vertices} mesh vertices inside data hull")
 
-        print("Building IC via gradient integration of (δθ, S)...")
-        # Pin the vertex closest to the data centroid to fix the global
-        # translation gauge.
-        cx, cy = float(xs.mean()), float(ys.mean())
-        d2 = (mesh.points[0] - cx) ** 2 + (mesh.points[1] - cy) ** 2
-        pin_vertex = int(np.argmin(d2))
+        # ----- Step 6: find polyline intersections and pin them -----
+        # Intersections of I-polylines and J-polylines are sites where
+        # both registry indices are simultaneously integer — the true
+        # AA stacking sites of the experimental moiré lattice (domain
+        # wall junctions). Pinning these anchors the domain orientation
+        # and phase to the experimental data.
+        # Find ALL three stacking sub-lattice sites (AA, BA, AB) from
+        # the polynomial registry fit. Pinning all three ensures the
+        # IC (via Dirichlet-BC Poisson) already has the correct domain
+        # pattern — BA and AB domains at low GSFE, with AA at the
+        # domain-wall junctions. Without BA/AB pins, the Dirichlet-BC
+        # interpolation between all-AA sites puts the whole mesh near
+        # AA stacking (~63 meV/uc), which is the wrong starting point.
+        print("Finding stacking sub-lattice sites from polynomial...")
+        I_at_mesh = I_field(mesh.points[0], mesh.points[1])
+        J_at_mesh = J_field(mesh.points[0], mesh.points[1])
+        I_mod = I_at_mesh % 1.0
+        J_mod = J_at_mesh % 1.0
+        tol = 0.15
+
+        def _frac_dist(mod_val, target):
+            """Circular distance of (val mod 1) from target in [0,1)."""
+            d = np.abs(mod_val - target)
+            return np.minimum(d, 1.0 - d)
+
+        # AA: I mod 1 ≈ 0, J mod 1 ≈ 0
+        is_aa = mesh_inside & (_frac_dist(I_mod, 0.0) < tol) & (_frac_dist(J_mod, 0.0) < tol)
+        # BA: I mod 1 ≈ 2/3, J mod 1 ≈ 2/3
+        is_ba = mesh_inside & (_frac_dist(I_mod, 2/3) < tol) & (_frac_dist(J_mod, 2/3) < tol)
+        # AB: I mod 1 ≈ 1/3, J mod 1 ≈ 1/3
+        is_ab = mesh_inside & (_frac_dist(I_mod, 1/3) < tol) & (_frac_dist(J_mod, 1/3) < tol)
+
+        pins = PinningMap(mesh, geom)
+        pin_set: set[int] = set()
+        for stacking, mask in [("AA", is_aa), ("BA", is_ba), ("AB", is_ab)]:
+            verts = np.where(mask)[0]
+            for vi in verts:
+                pin_set.add(int(vi))
+            pins.pin_vertices(verts, stacking=stacking)
+            print(f"  {stacking}: {len(verts)} vertices")
+
+        constraints = pins.build_constraints(
+            disc.build_conversion_matrices(nlayer1=1, nlayer2=1),
+        )
+        print(
+            f"  Total: {len(pin_set)} pinned mesh vertices, "
+            f"{len(constraints.pinned_indices)} pinned DOFs / "
+            f"{constraints.n_full}"
+        )
+
+        # Build the gradient-IC with ALL pin displacements as Dirichlet
+        # BCs. With AA, BA, and AB pins, the Poisson interpolation now
+        # produces the correct domain pattern in the IC (BA domains at
+        # low GSFE, AA junctions at high GSFE).
+        print("Building IC via gradient integration + Dirichlet BCs...")
+        all_pin_verts = np.array(sorted(pin_set), dtype=int)
+        # Look up the stacking each vertex was pinned to.
+        dir_ux = np.empty(len(all_pin_verts))
+        dir_uy = np.empty(len(all_pin_verts))
+        for i, vi in enumerate(all_pin_verts):
+            # Determine which stacking this vertex has.
+            if is_aa[vi]:
+                stk = "AA"
+            elif is_ba[vi]:
+                stk = "BA"
+            else:
+                stk = "AB"
+            ux_v, uy_v = pins._compute_displacement_for_stacking(int(vi), stk)
+            dir_ux[i] = ux_v
+            dir_uy[i] = uy_v
 
         ux, uy = displacement_from_strain_field(
             disc,
             theta_deg=theta_v, theta_avg_deg=theta_avg,
             S11=S11_v, S12=S12_v, S22=S22_v,
-            pin_vertex=pin_vertex,
+            dirichlet_vertices=all_pin_verts,
+            dirichlet_ux=dir_ux,
+            dirichlet_uy=dir_uy,
         )
         print(
             f"  IC: max |u| = {float(np.abs(np.hypot(ux, uy)).max()):.3f} nm, "
@@ -469,8 +538,9 @@ def main() -> None:
         U_full[1 * Nv:2 * Nv] = -ux / 2.0
         U_full[2 * Nv:3 * Nv] = +uy / 2.0
         U_full[3 * Nv:4 * Nv] = -uy / 2.0
+        U0_free = U_full[constraints.free_indices]
 
-        # ----- Step 6: relaxation via pseudo_dynamics -----
+        # ----- Step 7: relaxation via pseudo_dynamics -----
         cfg = SolverConfig(
             method="pseudo_dynamics",
             pixel_size=PIXEL_SIZE,
@@ -484,7 +554,8 @@ def main() -> None:
             moire_interface=MOSE2_WSE2_H_INTERFACE,
             theta_twist=geom.theta_twist,
             mesh=mesh,
-            initial_solution=U_full,
+            constraints=constraints,
+            initial_solution=U0_free,
         )
         elapsed = perf_counter() - t0
         print(

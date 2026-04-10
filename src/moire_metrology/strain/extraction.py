@@ -444,6 +444,9 @@ def displacement_from_strain_field(
     S12: np.ndarray,
     S22: np.ndarray,
     pin_vertex: int = 0,
+    dirichlet_vertices: np.ndarray | None = None,
+    dirichlet_ux: np.ndarray | None = None,
+    dirichlet_uy: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Build a displacement field from a target local twist + strain.
 
@@ -467,15 +470,17 @@ def displacement_from_strain_field(
     least-squares problem on the FEM mesh: ``[Dx; Dy] @ u_x = (S11; S12 − δθ)``
     and similarly for ``u_y``, where ``Dx`` and ``Dy`` are
     :class:`Discretization`'s vertex-to-triangle gradient operators.
-    One vertex is pinned to zero to fix the global translation gauge.
 
-    Compared with :func:`compute_displacement_field` (which solves a
-    pointwise stacking-phase match), this builder has no phase-origin
-    ambiguity and lets the caller cleanly extrapolate the target
-    gradient field to zero outside the data hull (just multiply
-    ``S11, S12, S22, theta_deg − theta_avg_deg`` by a smooth taper
-    weight before calling). The resulting ``u(r)`` will then smoothly
-    relax to the average configuration outside the data support.
+    When ``dirichlet_vertices`` is given, those vertices are held at
+    fixed ``(dirichlet_ux, dirichlet_uy)`` values and the Poisson
+    solve optimizes the remaining vertices. This is the natural way
+    to combine the gradient IC with pinning constraints: the pinned
+    vertices get the displacement that the
+    :class:`~moire_metrology.pinning.PinningMap` computes for their
+    target stacking, and the free vertices are interpolated to match
+    the target gradient field. When no Dirichlet vertices are given,
+    a single ``pin_vertex`` is pinned to zero to fix the global
+    translation gauge.
 
     Parameters
     ----------
@@ -492,7 +497,12 @@ def displacement_from_strain_field(
         ``compute_strain_field`` output keys of the same names).
     pin_vertex : int
         Index of the vertex pinned to ``u = 0`` to fix the global
-        translation gauge. Default 0.
+        translation gauge. Ignored when ``dirichlet_vertices`` is set.
+    dirichlet_vertices : ndarray of int or None
+        Vertex indices where ``u`` is prescribed. When given,
+        ``dirichlet_ux`` and ``dirichlet_uy`` must also be provided.
+    dirichlet_ux, dirichlet_uy : ndarray or None
+        Prescribed displacement values at the Dirichlet vertices (nm).
 
     Returns
     -------
@@ -530,18 +540,32 @@ def displacement_from_strain_field(
     b_x = np.concatenate([g_uxx, g_uxy])
     b_y = np.concatenate([g_uyx, g_uyy])
 
-    # Pin one vertex to fix the global translation gauge.
-    keep = np.ones(Nv, dtype=bool)
-    keep[int(pin_vertex)] = False
-    A_reduced = A[:, keep]
-
-    res_x = spla.lsmr(A_reduced, b_x, atol=1e-12, btol=1e-12)
-    res_y = spla.lsmr(A_reduced, b_y, atol=1e-12, btol=1e-12)
-
+    # Determine which vertices are fixed (Dirichlet BCs).
     ux = np.zeros(Nv)
     uy = np.zeros(Nv)
-    ux[keep] = res_x[0]
-    uy[keep] = res_y[0]
+    fixed = np.zeros(Nv, dtype=bool)
+
+    if dirichlet_vertices is not None:
+        dv = np.asarray(dirichlet_vertices, dtype=int)
+        ux[dv] = np.asarray(dirichlet_ux)
+        uy[dv] = np.asarray(dirichlet_uy)
+        fixed[dv] = True
+    else:
+        fixed[int(pin_vertex)] = True
+
+    free = ~fixed
+    A_free = A[:, free]
+
+    # Move the known (Dirichlet) contributions to the right-hand side.
+    A_fixed = A[:, fixed]
+    rhs_x = b_x - A_fixed @ ux[fixed]
+    rhs_y = b_y - A_fixed @ uy[fixed]
+
+    res_x = spla.lsmr(A_free, rhs_x, atol=1e-12, btol=1e-12)
+    res_y = spla.lsmr(A_free, rhs_y, atol=1e-12, btol=1e-12)
+
+    ux[free] = res_x[0]
+    uy[free] = res_y[0]
     return ux, uy
 
 
