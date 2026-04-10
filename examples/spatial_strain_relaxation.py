@@ -35,6 +35,11 @@ Headline figure (saved to ``examples/output/``): a 2×2 panel with
 ``θ(x, y)``, ``ε_c(x, y)``, ``ε_s(x, y)``, and the relaxed stacking
 energy density.
 
+The relaxation step takes ~10 minutes. Its result is cached to
+``examples/output/spatial_strain_relaxed.npz`` after the first
+successful run; subsequent runs reload from the cache and finish in a
+few seconds. Pass ``--force`` to re-solve from scratch.
+
 References
 ----------
 * Halbertal, Shabani, Pasupathy & Basov, "Extracting the strain matrix
@@ -58,6 +63,7 @@ the maintainer's polyline GUI, or build a :class:`FringeSet` directly.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
@@ -73,7 +79,7 @@ from moire_metrology import (
 )
 from moire_metrology.discretization import Discretization
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
-from moire_metrology.mesh import generate_finite_mesh
+from moire_metrology.mesh import MoireMesh, generate_finite_mesh
 from moire_metrology.plotting import plot_scalar_field
 from moire_metrology.strain import (
     FringeSet,
@@ -116,6 +122,69 @@ MAX_ITER = 70
 
 OUT_DIR = Path(__file__).parent / "output"
 OUT_DIR.mkdir(exist_ok=True)
+CACHE_PATH = OUT_DIR / "spatial_strain_relaxed.npz"
+
+
+# ---------------------------------------------------------------------------
+# Cache layer
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _CachedResult:
+    """Minimal stand-in for ``RelaxationResult`` carrying just the
+    fields the headline figure needs.
+
+    The shared ``RelaxationResult.save()`` doesn't preserve the finite-
+    mesh ``is_periodic=False`` flag (it was written for periodic-mesh
+    examples), so this example uses its own small cache layer.
+    """
+    mesh: MoireMesh
+    gsfe_map: np.ndarray
+    energy_reduction: float
+    total_energy: float
+    unrelaxed_energy: float
+
+
+def _save_cache(result, mesh: MoireMesh, path: Path) -> None:
+    np.savez_compressed(
+        path,
+        points=mesh.points,
+        triangles=mesh.triangles,
+        V1=mesh.V1,
+        V2=mesh.V2,
+        ns=mesh.ns,
+        nt=mesh.nt,
+        n_scale=mesh.n_scale,
+        is_periodic=mesh.is_periodic,
+        gsfe_map=result.gsfe_map,
+        total_energy=result.total_energy,
+        unrelaxed_energy=result.unrelaxed_energy,
+        energy_reduction=result.energy_reduction,
+    )
+
+
+def _load_cache(path: Path) -> _CachedResult | None:
+    if not path.exists():
+        return None
+    data = np.load(path, allow_pickle=False)
+    mesh = MoireMesh(
+        points=data["points"],
+        triangles=data["triangles"],
+        V1=data["V1"],
+        V2=data["V2"],
+        ns=int(data["ns"]),
+        nt=int(data["nt"]),
+        n_scale=int(data["n_scale"]),
+        is_periodic=bool(data["is_periodic"]),
+    )
+    return _CachedResult(
+        mesh=mesh,
+        gsfe_map=data["gsfe_map"],
+        energy_reduction=float(data["energy_reduction"]),
+        total_energy=float(data["total_energy"]),
+        unrelaxed_energy=float(data["unrelaxed_energy"]),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -270,6 +339,10 @@ def main() -> None:
         "--no-relax", action="store_true",
         help="Skip the relaxation step (only do strain extraction).",
     )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Force re-solve even if a cached relaxed state exists.",
+    )
     args = parser.parse_args()
 
     # ----- Step 1: load polylines into a FringeSet -----
@@ -328,6 +401,15 @@ def main() -> None:
     elapsed = 0.0
 
     if not args.no_relax:
+        # Try the cache first.
+        cached = None if args.force else _load_cache(CACHE_PATH)
+        if cached is not None:
+            print(f"\nLoaded cached relaxed state from {CACHE_PATH}")
+            print("(use --force to re-solve)")
+            result = cached
+            mesh = cached.mesh
+
+    if not args.no_relax and result is None:
         # ----- Step 4: build mesh and FEM gradient operators -----
         theta_avg = float(np.nanmean(np.abs(theta)))
         print(f"\nBuilding finite mesh at θ_avg = {theta_avg:.3f}°...")
@@ -409,6 +491,10 @@ def main() -> None:
             f"  Done in {elapsed:.1f}s, "
             f"energy reduction = {100 * result.energy_reduction:.1f}%"
         )
+
+        # Cache the relaxed state for fast plot iteration.
+        _save_cache(result, mesh, CACHE_PATH)
+        print(f"  Cached relaxed state → {CACHE_PATH}")
 
     # ----- Scalar summary -----
     summary_lines = [
