@@ -347,8 +347,22 @@ def compute_strain_field(
     Returns
     -------
     dict
-        Keys ``theta``, ``eps_c``, ``eps_s``, ``lambda1``, ``lambda2``,
-        ``phi1_deg``, ``phi2_deg``, each of the same shape as ``x``.
+        Each entry has the same shape as ``x``. Keys:
+
+        ``theta``, ``eps_c``, ``eps_s``
+            Local twist angle (deg) and the volumetric / shear strain
+            scalars used in the paper figures.
+        ``S11``, ``S12``, ``S22``
+            Components of the symmetric strain tensor in the global
+            ``(x, y)`` frame. ``S21 = S12``. These are the natural
+            inputs to a gradient-integration IC builder for the
+            relaxation framework.
+        ``eps1``, ``eps2``, ``strain_angle``
+            Principal strains and the principal-axis angle (deg).
+        ``lambda1``, ``lambda2``, ``phi1_deg``, ``phi2_deg``
+            The local moire vector lengths and orientations recovered
+            from the eq. 9 inversion (intermediate quantities, exposed
+            for diagnostics).
     """
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)
@@ -377,30 +391,237 @@ def compute_strain_field(
     phi1_deg = np.degrees(np.arctan2(v1y, v1x))
     phi2_deg = np.degrees(np.arctan2(v2y, v2x))
 
-    n = xf.size
-    theta = np.empty(n)
-    eps_c = np.empty(n)
-    eps_s = np.empty(n)
-    for k in range(n):
-        sr = get_strain(
-            alpha1=alpha1, alpha2=alpha2,
-            lambda1=float(lambda1[k]), lambda2=float(lambda2[k]),
-            phi1_deg=float(phi1_deg[k]), phi2_deg=float(phi2_deg[k]),
-            phi0=phi0_deg,
-        )
-        theta[k] = sr.theta_twist
-        eps_c[k] = sr.eps_c
-        eps_s[k] = sr.eps_s
+    # Vectorized strain inversion (replaces per-point get_strain loop).
+    # All operations below are on arrays of length n = xf.size.
+    alpha = alpha2
+    delta = alpha2 / alpha1 - 1.0
+    phi0_rad = np.radians(phi0_deg)
+    phi1_rad = np.radians(phi1_deg)
+    phi2_rad = np.radians(phi2_deg)
+
+    # b1b2 is constant (2, 2) — depends only on phi0 and alpha.
+    b1b2 = alpha * np.array([
+        [cos(phi0_rad), cos(phi0_rad + pi / 3)],
+        [sin(phi0_rad), sin(phi0_rad + pi / 3)],
+    ])
+
+    # v1v2 per point: columns are the moiré vectors.
+    # v1v2[0,0] = lambda1*cos(phi1), v1v2[0,1] = lambda2*cos(phi2), etc.
+    v1v2_00 = lambda1 * np.cos(phi1_rad)
+    v1v2_01 = lambda2 * np.cos(phi2_rad)
+    v1v2_10 = lambda1 * np.sin(phi1_rad)
+    v1v2_11 = lambda2 * np.sin(phi2_rad)
+
+    # Batch 2x2 inverse: inv([[a,b],[c,d]]) = (1/det)*[[d,-b],[-c,a]]
+    det_v = v1v2_00 * v1v2_11 - v1v2_01 * v1v2_10
+    inv_det = 1.0 / det_v
+    inv_00 = v1v2_11 * inv_det
+    inv_01 = -v1v2_01 * inv_det
+    inv_10 = -v1v2_10 * inv_det
+    inv_11 = v1v2_00 * inv_det
+
+    # b1b2 @ inv(v1v2) per point — (2,2) @ (2,2) batch
+    bi_00 = b1b2[0, 0] * inv_00 + b1b2[0, 1] * inv_10
+    bi_01 = b1b2[0, 0] * inv_01 + b1b2[0, 1] * inv_11
+    bi_10 = b1b2[1, 0] * inv_00 + b1b2[1, 1] * inv_10
+    bi_11 = b1b2[1, 0] * inv_01 + b1b2[1, 1] * inv_11
+
+    # M = (1+delta)*I + b1b2 @ inv(v1v2)
+    M_00 = (1.0 + delta) + bi_00
+    M_01 = bi_01
+    M_10 = bi_10
+    M_11 = (1.0 + delta) + bi_11
+
+    # Twist angle from moiré vector geometry (same formula as get_strain)
+    dphi = phi2_rad - phi1_rad
+    x0 = 2.0 * (1.0 + delta) * lambda1 * lambda2 * np.sin(dphi) / alpha
+    r = np.sqrt(
+        lambda1**2 + lambda2**2
+        - 2.0 * lambda1 * lambda2 * np.cos(dphi + pi / 3)
+    )
+    dphi0 = np.arctan2(
+        lambda1 * np.cos(phi1_rad - pi / 3) - lambda2 * np.cos(phi2_rad),
+        -lambda1 * np.sin(phi1_rad - pi / 3) + lambda2 * np.sin(phi2_rad),
+    )
+    x = x0 + r * np.cos(dphi0 - phi0_rad)
+    y = r * np.sin(dphi0 - phi0_rad)
+    theta_rad = np.arctan2(y, x)
+    theta = np.degrees(theta_rad)
+
+    # Rotation R(theta) per point
+    ct = np.cos(theta_rad)
+    st = np.sin(theta_rad)
+
+    # S = I - R(theta) @ M  (per point)
+    RM_00 = ct * M_00 - st * M_10
+    RM_01 = ct * M_01 - st * M_11
+    RM_11 = st * M_01 + ct * M_11
+    S11 = 1.0 - RM_00
+    S12 = -RM_01
+    S22 = 1.0 - RM_11
+
+    # Principal strains (vectorized get_strain_axis)
+    trace = S11 + S22
+    det_S = S11 * S22 - S12**2
+    discriminant = np.maximum(trace**2 - 4.0 * det_S, 0.0)
+    d = np.sqrt(discriminant)
+    eps1 = (trace + d) / 2.0
+    eps2 = (trace - d) / 2.0
+    eps_c = (eps1 + eps2) / 2.0
+    eps_s = (eps1 - eps2) / 2.0
+    strain_angle = np.degrees(
+        np.arctan2(S12, S11 - 0.5 * (eps1 + eps2))
+    )
 
     return {
         "theta": theta.reshape(shape),
         "eps_c": eps_c.reshape(shape),
         "eps_s": eps_s.reshape(shape),
+        "S11": S11.reshape(shape),
+        "S12": S12.reshape(shape),
+        "S22": S22.reshape(shape),
+        "eps1": eps1.reshape(shape),
+        "eps2": eps2.reshape(shape),
+        "strain_angle": strain_angle.reshape(shape),
         "lambda1": lambda1.reshape(shape),
         "lambda2": lambda2.reshape(shape),
         "phi1_deg": phi1_deg.reshape(shape),
         "phi2_deg": phi2_deg.reshape(shape),
     }
+
+
+def displacement_from_strain_field(
+    discretization,
+    *,
+    theta_deg: np.ndarray,
+    theta_avg_deg: float,
+    S11: np.ndarray,
+    S12: np.ndarray,
+    S22: np.ndarray,
+    pin_vertex: int = 0,
+    dirichlet_vertices: np.ndarray | None = None,
+    dirichlet_ux: np.ndarray | None = None,
+    dirichlet_uy: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build a displacement field from a target local twist + strain.
+
+    Translates the spatially-varying ``(θ(r), S(r))`` output of
+    :func:`compute_strain_field` into the relaxation framework's native
+    ``u(r)`` language. The framework holds a single global twist
+    ``θ_avg`` fixed, so any local twist deviation ``δθ(r) = θ(r) − θ_avg``
+    and any local strain ``S(r)`` must show up as a gradient of ``u``.
+    Specifically (with the framework's eps=0.5 layer partition,
+    confirmed against ``energy.py`` and ``discretization.py``):
+
+        ∂u_x/∂x = S11(r)
+        ∂u_y/∂y = S22(r)
+        ∂u_x/∂y = S12(r) − δθ(r)
+        ∂u_y/∂x = S12(r) + δθ(r)
+
+    These four equations are over-determined (four constraints on the
+    four components of ``∂u/∂r`` per point — exactly the count, but
+    with a global compatibility condition that need not hold for noisy
+    measured data). The implementation reads them as a sparse linear
+    least-squares problem on the FEM mesh: ``[Dx; Dy] @ u_x = (S11; S12 − δθ)``
+    and similarly for ``u_y``, where ``Dx`` and ``Dy`` are
+    :class:`Discretization`'s vertex-to-triangle gradient operators.
+
+    When ``dirichlet_vertices`` is given, those vertices are held at
+    fixed ``(dirichlet_ux, dirichlet_uy)`` values and the Poisson
+    solve optimizes the remaining vertices. This is the natural way
+    to combine the gradient IC with pinning constraints: the pinned
+    vertices get the displacement that the
+    :class:`~moire_metrology.pinning.PinningMap` computes for their
+    target stacking, and the free vertices are interpolated to match
+    the target gradient field. When no Dirichlet vertices are given,
+    a single ``pin_vertex`` is pinned to zero to fix the global
+    translation gauge.
+
+    Parameters
+    ----------
+    discretization : Discretization
+        FEM discretization carrying the mesh and the gradient operators.
+    theta_deg : ndarray, shape (Nv,)
+        Local twist angle at each mesh vertex (degrees). Use
+        ``np.abs(compute_strain_field(...)["theta"])`` since the
+        package convention reports ``-θ``.
+    theta_avg_deg : float
+        Global twist angle the relaxation framework holds fixed (deg).
+    S11, S12, S22 : ndarray, shape (Nv,)
+        Strain tensor components at each mesh vertex (the
+        ``compute_strain_field`` output keys of the same names).
+    pin_vertex : int
+        Index of the vertex pinned to ``u = 0`` to fix the global
+        translation gauge. Ignored when ``dirichlet_vertices`` is set.
+    dirichlet_vertices : ndarray of int or None
+        Vertex indices where ``u`` is prescribed. When given,
+        ``dirichlet_ux`` and ``dirichlet_uy`` must also be provided.
+    dirichlet_ux, dirichlet_uy : ndarray or None
+        Prescribed displacement values at the Dirichlet vertices (nm).
+
+    Returns
+    -------
+    ux, uy : ndarray, shape (Nv,)
+        Per-vertex displacement field components (nm), suitable as the
+        initial condition for a relaxation against the average-twist
+        moiré geometry.
+    """
+    import scipy.sparse as sp
+    import scipy.sparse.linalg as spla
+
+    Dx = discretization.diff_mat_x  # (Nt, Nv)
+    Dy = discretization.diff_mat_y
+    Nt, Nv = Dx.shape
+
+    triangles = discretization.mesh.triangles  # (Nt, 3)
+
+    def vert_to_tri(v: np.ndarray) -> np.ndarray:
+        return v[triangles].mean(axis=1)
+
+    delta_theta_rad = np.radians(vert_to_tri(theta_deg) - theta_avg_deg)
+    s11_t = vert_to_tri(S11)
+    s12_t = vert_to_tri(S12)
+    s22_t = vert_to_tri(S22)
+
+    # Per-triangle target gradients of u_x and u_y.
+    g_uxx = s11_t
+    g_uxy = s12_t - delta_theta_rad
+    g_uyx = s12_t + delta_theta_rad
+    g_uyy = s22_t
+
+    # Stack the two gradient equations into a single least-squares system
+    # per displacement component.
+    A = sp.vstack([Dx, Dy]).tocsr()  # (2Nt, Nv)
+    b_x = np.concatenate([g_uxx, g_uxy])
+    b_y = np.concatenate([g_uyx, g_uyy])
+
+    # Determine which vertices are fixed (Dirichlet BCs).
+    ux = np.zeros(Nv)
+    uy = np.zeros(Nv)
+    fixed = np.zeros(Nv, dtype=bool)
+
+    if dirichlet_vertices is not None:
+        dv = np.asarray(dirichlet_vertices, dtype=int)
+        ux[dv] = np.asarray(dirichlet_ux)
+        uy[dv] = np.asarray(dirichlet_uy)
+        fixed[dv] = True
+    else:
+        fixed[int(pin_vertex)] = True
+
+    free = ~fixed
+    A_free = A[:, free]
+
+    # Move the known (Dirichlet) contributions to the right-hand side.
+    A_fixed = A[:, fixed]
+    rhs_x = b_x - A_fixed @ ux[fixed]
+    rhs_y = b_y - A_fixed @ uy[fixed]
+
+    res_x = spla.lsmr(A_free, rhs_x, atol=1e-12, btol=1e-12)
+    res_y = spla.lsmr(A_free, rhs_y, atol=1e-12, btol=1e-12)
+
+    ux[free] = res_x[0]
+    uy[free] = res_y[0]
+    return ux, uy
 
 
 def compute_displacement_field(
