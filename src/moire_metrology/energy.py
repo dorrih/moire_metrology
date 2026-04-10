@@ -37,6 +37,53 @@ class _GSFEPair:
     w_offset: float = 0.0
 
 
+def _flip_negative_eigenvalues_2x2(
+    a: np.ndarray, b: np.ndarray, c: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Flip negative eigenvalues of per-vertex 2×2 symmetric matrices.
+
+    Given the upper-triangular entries ``[[a, b], [b, c]]`` of N
+    symmetric 2×2 matrices (one per vertex), return the entries of the
+    matrices with all eigenvalues replaced by their absolute values.
+    Eigenvectors are preserved; only the sign of the curvature in
+    concave directions is flipped.
+
+    This is an O(N) vectorized operation used by the modified-Newton
+    solver to make the GSFE Hessian positive semi-definite at vertices
+    that sit at stacking maxima (AA) or saddle points.
+    """
+    s = 0.5 * (a + c)           # mean eigenvalue
+    diff = 0.5 * (a - c)
+    d = np.sqrt(diff**2 + b**2)  # half-eigenvalue-spread (≥ 0)
+
+    lam_max = s + d
+    lam_min = s - d
+
+    # Only modify vertices where at least one eigenvalue is negative.
+    needs_fix = lam_min < 0
+    if not np.any(needs_fix):
+        return a, b, c
+
+    # Modified eigenvalues
+    lam_max_mod = np.abs(lam_max)
+    lam_min_mod = np.abs(lam_min)
+
+    s_mod = 0.5 * (lam_max_mod + lam_min_mod)
+    d_mod = 0.5 * (lam_max_mod - lam_min_mod)
+
+    # Reconstruct: a = s + d*cos(2θ), c = s - d*cos(2θ), b = d*sin(2θ)
+    # cos(2θ) = diff/d, sin(2θ) = b/d
+    ratio = np.where(d > 1e-30, d_mod / d, 0.0)
+
+    a_out = a.copy()
+    b_out = b.copy()
+    c_out = c.copy()
+    a_out[needs_fix] = s_mod[needs_fix] + ratio[needs_fix] * diff[needs_fix]
+    c_out[needs_fix] = s_mod[needs_fix] - ratio[needs_fix] * diff[needs_fix]
+    b_out[needs_fix] = ratio[needs_fix] * b[needs_fix]
+    return a_out, b_out, c_out
+
+
 class RelaxationEnergy:
     """Total energy functional for moire relaxation.
 
@@ -311,16 +358,36 @@ class RelaxationEnergy:
 
         return result
 
-    def hessian(self, U: np.ndarray) -> sparse.csr_matrix:
-        """Compute the Hessian. If constrained, returns the free x free subblock."""
+    def hessian(self, U: np.ndarray, modified: bool = False) -> sparse.csr_matrix:
+        """Compute the Hessian. If constrained, returns the free x free subblock.
+
+        Parameters
+        ----------
+        U : ndarray
+            Current DOF vector (free-space if constrained).
+        modified : bool
+            If True, flip negative eigenvalues of the per-vertex GSFE
+            Hessian blocks so the returned matrix is positive definite
+            (modulo the elastic part, which is always PSD). This enables
+            Newton steps at non-minimum stacking sites (AA, saddle
+            points) where the unmodified GSFE Hessian is indefinite.
+        """
         U_full = self._to_full(U)
-        H_full = self._hessian_full(U_full)
+        H_full = self._hessian_full(U_full, modified=modified)
         if self.constraints is not None:
             return self.constraints.project_hessian(H_full)
         return H_full
 
-    def _hessian_full(self, U_full: np.ndarray) -> sparse.csr_matrix:
-        """Compute the full-space Hessian."""
+    def _hessian_full(self, U_full: np.ndarray, modified: bool = False) -> sparse.csr_matrix:
+        """Compute the full-space Hessian.
+
+        When ``modified=True``, the per-vertex 2×2 GSFE Hessian blocks
+        have their negative eigenvalues flipped to positive before
+        assembly. This makes the total Hessian positive definite
+        (elastic part is always PSD) without any global scalar damping,
+        enabling well-conditioned Newton steps even at AA-stacking
+        sites and saddle points where the GSFE curvature is concave.
+        """
         Nv = self.Nv
         n_sol = self.conv.n_sol
         Mu = self._Mu1
@@ -338,6 +405,11 @@ class RelaxationEnergy:
             H_dxdx = w_v * (Mu[0, 0]**2 * d2v2 + 2*Mu[0, 0]*Mu[1, 0]*d2vw + Mu[1, 0]**2 * d2w2)
             H_dxdy = w_v * (Mu[0, 0]*Mu[0, 1]*d2v2 + (Mu[0, 0]*Mu[1, 1]+Mu[0, 1]*Mu[1, 0])*d2vw + Mu[1, 0]*Mu[1, 1]*d2w2)
             H_dydy = w_v * (Mu[0, 1]**2 * d2v2 + 2*Mu[0, 1]*Mu[1, 1]*d2vw + Mu[1, 1]**2 * d2w2)
+
+            if modified:
+                H_dxdx, H_dxdy, H_dydy = _flip_negative_eigenvalues_2x2(
+                    H_dxdx, H_dxdy, H_dydy,
+                )
 
             # Place blocks for this pair (4 combinations of layer_a/layer_b x/y)
             x_offsets = [

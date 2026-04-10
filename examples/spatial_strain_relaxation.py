@@ -542,7 +542,7 @@ def main() -> None:
 
         # ----- Step 7: relaxation via pseudo_dynamics -----
         cfg = SolverConfig(
-            method="pseudo_dynamics",
+            method="newton",
             pixel_size=PIXEL_SIZE,
             max_iter=MAX_ITER,
             gtol=1e-4,

@@ -152,8 +152,10 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
         if converged(gnorm):
             break
 
-        # Build Hessian + damping
-        H = energy_func.hessian(U)
+        # Build modified Hessian: flip negative GSFE eigenvalues per
+        # vertex so the matrix is positive definite, then add a small
+        # damping for numerical stability.
+        H = energy_func.hessian(U, modified=True)
         H_damped = H + mu * I_sp
 
         # Solve for Newton direction
