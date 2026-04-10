@@ -391,32 +391,87 @@ def compute_strain_field(
     phi1_deg = np.degrees(np.arctan2(v1y, v1x))
     phi2_deg = np.degrees(np.arctan2(v2y, v2x))
 
-    n = xf.size
-    theta = np.empty(n)
-    eps_c = np.empty(n)
-    eps_s = np.empty(n)
-    S11 = np.empty(n)
-    S12 = np.empty(n)
-    S22 = np.empty(n)
-    eps1 = np.empty(n)
-    eps2 = np.empty(n)
-    strain_angle = np.empty(n)
-    for k in range(n):
-        sr = get_strain(
-            alpha1=alpha1, alpha2=alpha2,
-            lambda1=float(lambda1[k]), lambda2=float(lambda2[k]),
-            phi1_deg=float(phi1_deg[k]), phi2_deg=float(phi2_deg[k]),
-            phi0=phi0_deg,
-        )
-        theta[k] = sr.theta_twist
-        eps_c[k] = sr.eps_c
-        eps_s[k] = sr.eps_s
-        S11[k] = sr.S11
-        S12[k] = sr.S12
-        S22[k] = sr.S22
-        eps1[k] = sr.eps1
-        eps2[k] = sr.eps2
-        strain_angle[k] = sr.strain_angle
+    # Vectorized strain inversion (replaces per-point get_strain loop).
+    # All operations below are on arrays of length n = xf.size.
+    alpha = alpha2
+    delta = alpha2 / alpha1 - 1.0
+    phi0_rad = np.radians(phi0_deg)
+    phi1_rad = np.radians(phi1_deg)
+    phi2_rad = np.radians(phi2_deg)
+
+    # b1b2 is constant (2, 2) — depends only on phi0 and alpha.
+    b1b2 = alpha * np.array([
+        [cos(phi0_rad), cos(phi0_rad + pi / 3)],
+        [sin(phi0_rad), sin(phi0_rad + pi / 3)],
+    ])
+
+    # v1v2 per point: columns are the moiré vectors.
+    # v1v2[0,0] = lambda1*cos(phi1), v1v2[0,1] = lambda2*cos(phi2), etc.
+    v1v2_00 = lambda1 * np.cos(phi1_rad)
+    v1v2_01 = lambda2 * np.cos(phi2_rad)
+    v1v2_10 = lambda1 * np.sin(phi1_rad)
+    v1v2_11 = lambda2 * np.sin(phi2_rad)
+
+    # Batch 2x2 inverse: inv([[a,b],[c,d]]) = (1/det)*[[d,-b],[-c,a]]
+    det_v = v1v2_00 * v1v2_11 - v1v2_01 * v1v2_10
+    inv_det = 1.0 / det_v
+    inv_00 = v1v2_11 * inv_det
+    inv_01 = -v1v2_01 * inv_det
+    inv_10 = -v1v2_10 * inv_det
+    inv_11 = v1v2_00 * inv_det
+
+    # b1b2 @ inv(v1v2) per point — (2,2) @ (2,2) batch
+    bi_00 = b1b2[0, 0] * inv_00 + b1b2[0, 1] * inv_10
+    bi_01 = b1b2[0, 0] * inv_01 + b1b2[0, 1] * inv_11
+    bi_10 = b1b2[1, 0] * inv_00 + b1b2[1, 1] * inv_10
+    bi_11 = b1b2[1, 0] * inv_01 + b1b2[1, 1] * inv_11
+
+    # M = (1+delta)*I + b1b2 @ inv(v1v2)
+    M_00 = (1.0 + delta) + bi_00
+    M_01 = bi_01
+    M_10 = bi_10
+    M_11 = (1.0 + delta) + bi_11
+
+    # Twist angle from moiré vector geometry (same formula as get_strain)
+    dphi = phi2_rad - phi1_rad
+    x0 = 2.0 * (1.0 + delta) * lambda1 * lambda2 * np.sin(dphi) / alpha
+    r = np.sqrt(
+        lambda1**2 + lambda2**2
+        - 2.0 * lambda1 * lambda2 * np.cos(dphi + pi / 3)
+    )
+    dphi0 = np.arctan2(
+        lambda1 * np.cos(phi1_rad - pi / 3) - lambda2 * np.cos(phi2_rad),
+        -lambda1 * np.sin(phi1_rad - pi / 3) + lambda2 * np.sin(phi2_rad),
+    )
+    x = x0 + r * np.cos(dphi0 - phi0_rad)
+    y = r * np.sin(dphi0 - phi0_rad)
+    theta_rad = np.arctan2(y, x)
+    theta = np.degrees(theta_rad)
+
+    # Rotation R(theta) per point
+    ct = np.cos(theta_rad)
+    st = np.sin(theta_rad)
+
+    # S = I - R(theta) @ M  (per point)
+    RM_00 = ct * M_00 - st * M_10
+    RM_01 = ct * M_01 - st * M_11
+    RM_11 = st * M_01 + ct * M_11
+    S11 = 1.0 - RM_00
+    S12 = -RM_01
+    S22 = 1.0 - RM_11
+
+    # Principal strains (vectorized get_strain_axis)
+    trace = S11 + S22
+    det_S = S11 * S22 - S12**2
+    discriminant = np.maximum(trace**2 - 4.0 * det_S, 0.0)
+    d = np.sqrt(discriminant)
+    eps1 = (trace + d) / 2.0
+    eps2 = (trace - d) / 2.0
+    eps_c = (eps1 + eps2) / 2.0
+    eps_s = (eps1 - eps2) / 2.0
+    strain_angle = np.degrees(
+        np.arctan2(S12, S11 - 0.5 * (eps1 + eps2))
+    )
 
     return {
         "theta": theta.reshape(shape),
