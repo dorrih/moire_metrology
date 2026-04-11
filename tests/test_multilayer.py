@@ -74,9 +74,20 @@ class TestLayerStack:
         assert result.displacement_x2.shape[0] == 1  # 1 bottom layer
 
     @pytest.mark.slow
-    def test_more_layers_more_energy(self):
-        """More layers should give more total energy (more unit cells)."""
-        config = SolverConfig(method="L-BFGS-B", pixel_size=1.5, max_iter=100, gtol=1e-3, display=False)
+    def test_more_layers_more_relaxation_energy(self):
+        """Relaxed (not unrelaxed) total energy grows with stack size.
+
+        Unrelaxed energy is essentially independent of stack size because
+        at u=0 the homobilayer pairs sit at their Bernal minimum and
+        contribute zero — only the twisted interface drives the unrelaxed
+        energy, and there is always exactly one twisted interface
+        regardless of stack size. What DOES grow with stack size is the
+        elastic-strain cost of propagating the relaxation pattern into
+        the flake, so the relaxed total_energy is larger (closer to the
+        unrelaxed value) for thicker stacks.
+        """
+        config = SolverConfig(method="L-BFGS-B", pixel_size=1.5,
+                              max_iter=100, gtol=1e-3, display=False)
 
         stack1 = _stack(n_top=1, n_bottom=1, theta_twist=3.0)
         result1 = stack1.solve(config)
@@ -84,8 +95,13 @@ class TestLayerStack:
         stack2 = _stack(n_top=2, n_bottom=1, theta_twist=3.0)
         result2 = stack2.solve(config)
 
-        # More layers means more elastic energy contribution
-        assert result2.unrelaxed_energy > result1.unrelaxed_energy
+        # Unrelaxed energy is set by the twisted interface only and
+        # should be (approximately) the same for both stacks.
+        assert np.isclose(result1.unrelaxed_energy,
+                          result2.unrelaxed_energy, rtol=1e-6)
+        # The thicker stack should have a larger relaxed total energy
+        # because the additional homobilayer layer pays elastic cost.
+        assert result2.total_energy > result1.total_energy
 
 
 class TestFixOuterLayers:

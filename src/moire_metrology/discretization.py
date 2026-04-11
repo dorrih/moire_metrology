@@ -71,7 +71,8 @@ class PinnedConstraints:
 
 
 def build_outer_layer_constraints(
-    conv: "ConversionMatrices", fix_top: bool, fix_bottom: bool
+    conv: "ConversionMatrices", fix_top: bool, fix_bottom: bool,
+    pin_mean: bool = False,
 ) -> PinnedConstraints:
     """Build PinnedConstraints clamping the outer (free-surface) layers to zero.
 
@@ -126,6 +127,19 @@ def build_outer_layer_constraints(
             raise ValueError("fix_bottom requires nlayer2 >= 1")
         last_global = nlayer1 + nlayer2 - 1
         pinned.extend(_layer_block_indices(last_global))
+
+    if pin_mean and not (fix_top or fix_bottom):
+        # Break the 2D in-plane translation null space that appears
+        # when both flakes are free. Pin (ux, uy) = 0 at vertex 0 of
+        # the stack1 layer adjacent to the twisted interface (global
+        # index nlayer1 - 1). The choice of vertex/layer is physically
+        # irrelevant: GSFE depends only on relative stacking, so any
+        # single 2-DOF pin breaks translation symmetry without biasing
+        # the minimum.
+        middle_layer = max(nlayer1 - 1, 0)
+        ox = middle_layer * Nv + 0
+        oy = nlayers_total * Nv + middle_layer * Nv + 0
+        pinned.extend([ox, oy])
 
     pinned_indices = np.array(sorted(set(pinned)), dtype=np.int64)
     pinned_values = np.zeros(len(pinned_indices))
