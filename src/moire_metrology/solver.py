@@ -19,6 +19,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy import sparse
 from scipy.optimize import minimize
 from scipy.sparse.linalg import spsolve
 
@@ -108,7 +109,10 @@ class SolverConfig:
 
 
 def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
-                  max_iter: int, gtol: float, display: bool) -> dict:
+                  max_iter: int, gtol: float, display: bool,
+                  linear_solver: str = "direct",
+                  linear_solver_tol: float = 1e-6,
+                  linear_solver_maxiter: int = 500) -> dict:
     """Damped Newton solver with sparse direct Hessian factorization.
 
     Uses Levenberg-Marquardt damping to handle indefinite Hessians:
@@ -118,97 +122,157 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     - Decreased when full Newton steps succeed (energy decreases)
     - Increased when the Hessian is indefinite or steps fail
 
-    Convergence is declared when EITHER
-        |grad|        < gtol  (absolute), OR
-        |grad|/|grad0| < gtol  (relative to initial gradient).
+    Convergence is declared when ANY of:
+        |grad|        < gtol                     (absolute), OR
+        |grad|/|grad0| < gtol                    (relative to initial), OR
+        (E_best - E_new) / |E_best| < etol       (energy stagnation over
+                                                  ``etol_window`` iters).
     The relative criterion matters at low twist angles where the absolute
     gradient norm at the energy minimum can be O(1-10) due to large total
-    energies, making any reasonable absolute gtol unreachable.
+    energies, making any reasonable absolute gtol unreachable. The
+    energy-stagnation criterion is the fallback when neither gradient
+    criterion can be satisfied because Newton is making consistent but
+    tiny progress on a shallow minimum (common in very large multi-layer
+    systems where each Newton step is expensive).
+
+    A KeyboardInterrupt during the iteration returns the best iterate
+    seen so far (by energy), so that a long-running solve can be stopped
+    with Ctrl-C and still yield a usable result for plotting/debugging.
 
     The elastic Hessian is constant (precomputed). Only the GSFE Hessian
     changes each iteration. The linear system is solved with sparse LU.
     """
     from scipy.sparse import eye as speye
+    from scipy.sparse.linalg import cg as sparse_cg
 
     U = U0.copy()
     E, grad = energy_func(U)
     gnorm = np.linalg.norm(grad)
-    gnorm0 = max(gnorm, 1.0)  # avoid div-by-zero if started at minimum
+    gnorm0 = max(gnorm, 1.0)
     n_sol = len(U)
     nit = 0
     nfev = 1
     t_start = perf_counter()
 
+    # Track best iterate for KeyboardInterrupt recovery.
+    U_best, E_best, grad_best = U.copy(), E, grad.copy()
+
+    # Energy-stagnation early exit: if the fractional energy improvement
+    # over the last etol_window accepted steps falls below etol, declare
+    # convergence.
+    etol = 1e-8
+    etol_window = 5
+    recent_E: list[float] = [E]
+
     def converged(gn: float) -> bool:
         return gn < gtol or (gn / gnorm0) < gtol
 
-    # Initial damping: scale relative to the Hessian diagonal
+    def stagnated() -> bool:
+        if len(recent_E) < etol_window + 1:
+            return False
+        window = recent_E[-(etol_window + 1):]
+        delta = window[0] - window[-1]
+        scale = max(abs(window[-1]), 1.0)
+        return (delta / scale) < etol
+
     mu = 1e-4 * (energy_func.K1 + energy_func.G1)
     mu_min = 1e-10
     mu_max = 1e10
     I_sp = speye(n_sol, format="csr")
 
-    for nit in range(1, max_iter + 1):
-        if converged(gnorm):
-            break
+    interrupted = False
+    exit_reason: str | None = None
+    try:
+        for nit in range(1, max_iter + 1):
+            if converged(gnorm):
+                exit_reason = "converged"
+                break
+            if stagnated():
+                exit_reason = "energy stagnation"
+                break
 
-        # Build modified Hessian: flip negative GSFE eigenvalues per
-        # vertex so the matrix is positive definite, then add a small
-        # damping for numerical stability.
-        H = energy_func.hessian(U, modified=True)
-        H_damped = H + mu * I_sp
+            H = energy_func.hessian(U, modified=True)
+            H_damped = H + mu * I_sp
 
-        # Solve for Newton direction
-        try:
-            dU = spsolve(H_damped, -grad)
-        except Exception:
-            mu *= 10
-            continue
+            # Solve H_damped @ dU = -grad.
+            # - "direct": sparse LU (exact but fill-in is bad for
+            #   large multi-layer stacks).
+            # - "iterative": preconditioned CG. The modified Hessian
+            #   is PD by construction (PR #16), so CG is valid. A
+            #   diagonal (Jacobi) preconditioner is cheap and gives
+            #   decent clustering of the spectrum for these systems.
+            try:
+                if linear_solver == "direct":
+                    dU = spsolve(H_damped, -grad)
+                else:
+                    diag = H_damped.diagonal()
+                    diag = np.where(np.abs(diag) > 0, diag, 1.0)
+                    M_inv = sparse.diags(1.0 / diag, format="csr")
+                    dU, info = sparse_cg(
+                        H_damped, -grad,
+                        rtol=linear_solver_tol,
+                        maxiter=linear_solver_maxiter,
+                        M=M_inv,
+                    )
+                    if info != 0 and display:
+                        print(f"  [iter {nit}] CG did not fully converge "
+                              f"(info={info}); using best iterate.")
+            except Exception:
+                mu *= 10
+                continue
 
-        # Check descent direction
-        slope = grad.dot(dU)
-        if slope > 0:
-            # Not a descent direction — increase damping and retry
-            mu *= 10
-            mu = min(mu, mu_max)
-            continue
+            slope = grad.dot(dU)
+            if slope > 0:
+                mu *= 10
+                mu = min(mu, mu_max)
+                continue
 
-        # Try full Newton step
-        U_trial = U + dU
-        E_new, grad_new = energy_func(U_trial)
-        nfev += 1
+            U_trial = U + dU
+            E_new, grad_new = energy_func(U_trial)
+            nfev += 1
 
-        if E_new < E:
-            # Accept step
-            actual_reduction = E - E_new
-            predicted_reduction = -slope - 0.5 * dU.dot(H @ dU)
-            rho = actual_reduction / max(abs(predicted_reduction), 1e-30)
+            if E_new < E:
+                actual_reduction = E - E_new
+                predicted_reduction = -slope - 0.5 * dU.dot(H @ dU)
+                rho = actual_reduction / max(abs(predicted_reduction), 1e-30)
 
-            U = U_trial
-            E = E_new
-            grad = grad_new
-            gnorm = np.linalg.norm(grad)
+                U = U_trial
+                E = E_new
+                grad = grad_new
+                gnorm = np.linalg.norm(grad)
+                recent_E.append(E)
 
-            # Adapt damping
-            if rho > 0.75:
-                mu = max(mu / 3, mu_min)
-            elif rho < 0.25:
-                mu *= 2
-        else:
-            # Reject step — increase damping
-            mu *= 4
-            mu = min(mu, mu_max)
+                if E < E_best:
+                    U_best, E_best, grad_best = U.copy(), E, grad.copy()
 
-        if display and (nit % 5 == 0 or nit <= 3):
-            elapsed = perf_counter() - t_start
-            print(f"  iter {nit:4d}: E = {E:.4f}, |grad| = {gnorm:.2e}, "
-                  f"mu = {mu:.2e}, t = {elapsed:.1f}s")
+                if rho > 0.75:
+                    mu = max(mu / 3, mu_min)
+                elif rho < 0.25:
+                    mu *= 2
+            else:
+                mu *= 4
+                mu = min(mu, mu_max)
 
-    success = converged(gnorm)
-    message = "converged" if success else f"max iterations ({max_iter}) reached"
+            if display and (nit % 5 == 0 or nit <= 3):
+                elapsed = perf_counter() - t_start
+                print(f"  iter {nit:4d}: E = {E:.4f}, |grad| = {gnorm:.2e}, "
+                      f"mu = {mu:.2e}, t = {elapsed:.1f}s")
+    except KeyboardInterrupt:
+        interrupted = True
+        exit_reason = "interrupted (returning best iterate)"
+        if display:
+            print(f"\n  KeyboardInterrupt at iter {nit}; returning best iterate "
+                  f"(E = {E_best:.4f}).")
+
+    if exit_reason is None:
+        exit_reason = f"max iterations ({max_iter}) reached"
+
+    success = (not interrupted) and (
+        converged(np.linalg.norm(grad_best)) or exit_reason == "energy stagnation"
+    )
     return {
-        "x": U, "fun": E, "jac": grad, "nit": nit, "nfev": nfev,
-        "message": message, "success": success,
+        "x": U_best, "fun": E_best, "jac": grad_best, "nit": nit, "nfev": nfev,
+        "message": exit_reason, "success": success,
     }
 
 
@@ -562,6 +626,7 @@ class RelaxationSolver:
         constraints: "PinnedConstraints | None" = None,
         fix_top: bool = False,
         fix_bottom: bool = False,
+        pin_mean: bool = False,
         mesh: MoireMesh | None = None,
         **legacy_kwargs,
     ) -> RelaxationResult:
@@ -676,16 +741,18 @@ class RelaxationSolver:
         conv = disc.build_conversion_matrices(nlayer1=nlayer1, nlayer2=nlayer2)
 
         # Outer-layer clamps build a PinnedConstraints automatically.
-        if (fix_top or fix_bottom):
+        if (fix_top or fix_bottom or pin_mean):
             if constraints is not None:
                 raise ValueError(
-                    "fix_top / fix_bottom cannot be combined with an explicit "
-                    "constraints argument; build a single PinnedConstraints "
-                    "manually if you need both kinds of pinning."
+                    "fix_top / fix_bottom / pin_mean cannot be combined "
+                    "with an explicit constraints argument; build a single "
+                    "PinnedConstraints manually if you need both kinds of "
+                    "pinning."
                 )
             from .discretization import build_outer_layer_constraints
             constraints = build_outer_layer_constraints(
                 conv, fix_top=fix_top, fix_bottom=fix_bottom,
+                pin_mean=pin_mean,
             )
 
         # GSFE comes from the interfaces, not the materials. The moiré
@@ -748,7 +815,12 @@ class RelaxationSolver:
         # Run optimizer
         if cfg.method in ("newton", "pseudo_dynamics"):
             if cfg.method == "newton":
-                res = _newton_solve(energy_func, U0, cfg.max_iter, cfg.gtol, cfg.display)
+                res = _newton_solve(
+                    energy_func, U0, cfg.max_iter, cfg.gtol, cfg.display,
+                    linear_solver=cfg.linear_solver,
+                    linear_solver_tol=cfg.linear_solver_tol,
+                    linear_solver_maxiter=cfg.linear_solver_maxiter,
+                )
             else:
                 res = _pseudo_dynamics_solve(
                     energy_func, U0, cfg.max_iter, cfg.gtol,

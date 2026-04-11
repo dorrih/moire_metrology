@@ -113,6 +113,7 @@ class LayerStack:
         *,
         fix_top: bool = False,
         fix_bottom: bool = False,
+        pin_mean: bool = False,
     ):
         """Run relaxation on this stack.
 
@@ -146,6 +147,7 @@ class LayerStack:
             theta0=self.theta0,
             fix_top=fix_top,
             fix_bottom=fix_bottom,
+            pin_mean=pin_mean,
         )
 
     def describe(self) -> str:

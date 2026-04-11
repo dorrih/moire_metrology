@@ -32,9 +32,18 @@ class _GSFEPair:
     layer_b_ox: int  # ux offset for layer B
     layer_a_oy: int  # uy offset for layer A
     layer_b_oy: int  # uy offset for layer B
-    # Natural stacking phase offset (in radians)
+    # Natural stacking phase offset (in radians) — a *constant* offset
+    # applied to the phase at every vertex (e.g. the ±2π/3 Bernal offset
+    # for graphene homobilayer stacks, so u=0 corresponds to AB or BA).
     v_offset: float = 0.0
     w_offset: float = 0.0
+    # If True, the position-dependent moire phase v0(r), w0(r) is added
+    # to this pair's phase (only the twisted interface pair should have
+    # this — the homobilayer pairs inside each flake are *untwisted*
+    # and must NOT pick up the moire phase, else u=0 no longer sits at
+    # Bernal and the solver ends up compensating with spurious
+    # alternating ±u layer patterns).
+    use_moire_phase: bool = True
 
 
 def _flip_negative_eigenvalues_2x2(
@@ -181,6 +190,7 @@ class RelaxationEnergy:
                     layer_a_oy=a_oy, layer_b_oy=b_oy,
                     v_offset=2 * np.pi * I1[k],
                     w_offset=2 * np.pi * J1[k],
+                    use_moire_phase=False,
                 ))
 
         # Intra-stack 2: between layers k and k+1 (k = 0..nlayer2-2)
@@ -196,6 +206,7 @@ class RelaxationEnergy:
                     layer_a_oy=a_oy, layer_b_oy=b_oy,
                     v_offset=2 * np.pi * I2[k],
                     w_offset=2 * np.pi * J2[k],
+                    use_moire_phase=False,
                 ))
 
         # Precompute the elastic Hessian (constant)
@@ -261,7 +272,9 @@ class RelaxationEnergy:
         Mu = self._Mu1
         dv = -(Mu[0, 0] * dux + Mu[0, 1] * duy)
         dw = -(Mu[1, 0] * dux + Mu[1, 1] * duy)
-        return self._v0 + dv + pair.v_offset, self._w0 + dw + pair.w_offset
+        if pair.use_moire_phase:
+            return self._v0 + dv + pair.v_offset, self._w0 + dw + pair.w_offset
+        return dv + pair.v_offset, dw + pair.w_offset
 
     def _scatter_pair_gradient(self, pair: _GSFEPair, grad: np.ndarray,
                                 fx: np.ndarray, fy: np.ndarray):
