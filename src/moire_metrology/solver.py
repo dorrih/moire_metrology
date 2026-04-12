@@ -432,7 +432,7 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     consec_rejects = 0
 
     for nit in range(1, max_iter + 1):
-        if converged(gnorm):
+        if count_conv >= count_conv_required:
             break
 
         rhs = -dt * grad

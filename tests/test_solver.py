@@ -301,11 +301,11 @@ class TestConvergenceCriteria:
 
     @pytest.mark.slow
     def test_pseudo_dynamics_reports_success(self):
-        # pseudo_dynamics needs more iterations to converge; coarsen the
-        # mesh and give generous headroom — this test checks the reporting
-        # path, not solver precision.
+        # pseudo_dynamics is slower to converge; coarsen the mesh and
+        # give headroom — this test checks the reporting path, not
+        # solver precision.
         cfg = SolverConfig(method="pseudo_dynamics", gtol=1e-2, rtol=1e-1,
-                           pixel_size=1.5, max_iter=300, display=False,
+                           pixel_size=1.5, max_iter=200, display=False,
                            min_mesh_points=30)
         result = RelaxationSolver(cfg).solve(
             moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
