@@ -62,7 +62,6 @@ the maintainer's polyline GUI, or build a :class:`FringeSet` directly.
 
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -71,9 +70,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from moire_metrology import (
-    MOSE2,
-    MOSE2_WSE2_H_INTERFACE,
-    WSE2,
     RelaxationSolver,
     SolverConfig,
 )
@@ -89,43 +85,20 @@ from moire_metrology.strain import (
     displacement_from_strain_field,
 )
 
+import _cli
 
-# --- Parameters ---------------------------------------------------------
 
-#: Path to the maintainer-only ``.mat`` polyline data file (gitignored).
-DATA_PATH = (Path(__file__).parents[1]
-             / "docs_internal" / "Bilayer--183_1_pointsList.mat")
+# --- Default parameters (overridable via CLI) ----------------------------
 
-#: Polynomial degree for the I(r), J(r) registry fits. The ACS Nano
-#: paper Methods section uses n=11; we match it.
-POLYNOMIAL_DEGREE = 11
-
-#: Common substrate orientation φ₀. The paper Fig 1 caption reports
-#: -65.6° (extracted by the maintainer's MATLAB pipeline).
-PHI0_DEG_DEFAULT = -65.6
-
-#: Layer lattice constants in the (alpha1 < alpha2) convention used by
-#: :func:`get_strain`. For H-MoSe2/WSe2 the larger constant is MoSe2.
-ALPHA1 = WSE2.lattice_constant   # 0.3282 nm
-ALPHA2 = MOSE2.lattice_constant  # 0.3288 nm
-
-#: Strain map grid resolution for the headline figure.
-N_GRID = 100
-
-#: Mesh sizing for the relaxation step. Domain walls for H-MoSe2/WSe2
-#: are ~8 nm wide (α√(K/V_gsfe)), so pixel_size must be ≤2 nm to
-#: resolve them with ≥4 mesh cells across the wall.
-N_CELLS = 55
-PIXEL_SIZE = 2.0
-
-#: Pseudo-dynamics iteration cap. Empirically, the relaxation hits a
-#: numerical-noise plateau around iter 60-70 on this dataset; running
-#: more is wasted work.
-MAX_ITER = 70
-
-OUT_DIR = Path(__file__).parent / "output"
-OUT_DIR.mkdir(exist_ok=True)
-CACHE_PATH = OUT_DIR / "spatial_strain_relaxed.npz"
+DEFAULT_DATA_PATH = (Path(__file__).parents[1]
+                     / "docs_internal" / "Bilayer--183_1_pointsList.mat")
+DEFAULT_INTERFACE = "mose2-wse2-h"
+DEFAULT_POLY_DEGREE = 11
+DEFAULT_PHI0_DEG = -65.6
+DEFAULT_N_GRID = 100
+DEFAULT_N_CELLS = 55
+DEFAULT_PIXEL_SIZE = 2.0
+DEFAULT_MAX_ITER = 70
 
 
 # ---------------------------------------------------------------------------
@@ -195,12 +168,14 @@ def _load_cache(path: Path) -> _CachedResult | None:
 # ---------------------------------------------------------------------------
 
 
-def _build_mesh_for_data(fringes: FringeSet, theta_avg_deg: float):
+def _build_mesh_for_data(fringes: FringeSet, theta_avg_deg: float,
+                         alpha1: float, alpha2: float,
+                         n_cells: int, pixel_size: float):
     """Build a finite mesh covering the data extent at the average geometry."""
-    delta_avg = ALPHA2 / ALPHA1 - 1.0
-    lattice = HexagonalLattice(alpha=ALPHA1)
+    delta_avg = alpha2 / alpha1 - 1.0
+    lattice = HexagonalLattice(alpha=alpha1)
     geom = MoireGeometry(lattice, theta_twist=theta_avg_deg, delta=delta_avg)
-    mesh = generate_finite_mesh(geom, n_cells=N_CELLS, pixel_size=PIXEL_SIZE)
+    mesh = generate_finite_mesh(geom, n_cells=n_cells, pixel_size=pixel_size)
 
     xs = np.concatenate([f.x for f in fringes.fringes])
     ys = np.concatenate([f.y for f in fringes.fringes])
@@ -227,6 +202,9 @@ def _plot_headline(
     X: np.ndarray, Y: np.ndarray,
     strain: dict, mesh, result,
     out_path: Path,
+    *,
+    poly_degree: int = 11,
+    phi0_deg: float = -65.6,
 ) -> None:
     """2x2 panel: strain extraction maps + relaxed stacking energy."""
     xs_I = np.concatenate([f.x for f in fringes.i_fringes])
@@ -251,7 +229,7 @@ def _plot_headline(
     ax.set_ylabel("y (nm)")
     ax.set_title(
         f"recovered θ(x, y) — paper Fig 1c\n"
-        f"polynomial degree {POLYNOMIAL_DEGREE}, φ₀ = {PHI0_DEG_DEFAULT:.1f}°"
+        f"polynomial degree {poly_degree}, phi0 = {phi0_deg:.1f} deg"
     )
     plt.colorbar(sc, ax=ax, label="θ (deg)", shrink=0.8)
     ax.legend(loc="lower left", fontsize=8, framealpha=0.8)
@@ -317,9 +295,9 @@ def _plot_headline(
         ax.set_ylim(Y.min() - pad, Y.max() + pad)
 
     fig.suptitle(
-        "Spatially-varying strain extraction + relaxation — H-MoSe2/WSe2\n"
+        "Spatially-varying strain extraction + relaxation\n"
         "Top row + bottom-left reproduce Halbertal et al. ACS Nano 16, 1471 "
-        "(2022) Fig 1c-e. Bottom-right is the new relaxation prediction.",
+        "(2022) Fig 1c-e. Bottom-right is the relaxation prediction.",
         fontsize=11, y=1.0,
     )
     fig.tight_layout()
@@ -333,7 +311,43 @@ def _plot_headline(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = _cli.argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=_cli.argparse.RawDescriptionHelpFormatter,
+    )
+    _cli.add_interface_arg(parser, default=DEFAULT_INTERFACE)
+    parser.add_argument(
+        "--list-interfaces", action="store_true",
+        help="List all bundled interfaces with parameters and exit.",
+    )
+    parser.add_argument(
+        "--data-file", type=Path, default=DEFAULT_DATA_PATH, metavar="PATH",
+        help="Path to the .mat polyline data file. Default: %(default)s",
+    )
+    parser.add_argument(
+        "--poly-degree", type=int, default=DEFAULT_POLY_DEGREE,
+        help="Polynomial degree for registry fits. Default: %(default)s",
+    )
+    parser.add_argument(
+        "--phi0", type=float, default=DEFAULT_PHI0_DEG, metavar="DEG",
+        help="Substrate orientation phi0 (degrees). Default: %(default)s",
+    )
+    parser.add_argument(
+        "--n-grid", type=int, default=DEFAULT_N_GRID,
+        help="Strain map grid resolution. Default: %(default)s",
+    )
+    parser.add_argument(
+        "--n-cells", type=int, default=DEFAULT_N_CELLS,
+        help="Mesh cell count for relaxation. Default: %(default)s",
+    )
+    parser.add_argument(
+        "--pixel-size", type=float, default=DEFAULT_PIXEL_SIZE, metavar="NM",
+        help="Mesh pixel size (nm). Default: %(default)s",
+    )
+    parser.add_argument(
+        "--max-iter", type=int, default=DEFAULT_MAX_ITER,
+        help="Max relaxation iterations. Default: %(default)s",
+    )
     parser.add_argument(
         "--no-plots", action="store_true",
         help="Skip plotting (useful for headless smoke testing).",
@@ -346,38 +360,59 @@ def main() -> None:
         "--force", action="store_true",
         help="Force re-solve even if a cached relaxed state exists.",
     )
+    parser.add_argument(
+        "--output-dir", type=Path, default=None, metavar="DIR",
+        help="Output directory. Default: examples/output/",
+    )
     args = parser.parse_args()
+    _cli.handle_list_interfaces(args)
+
+    interface = _cli.resolve_interface(args.interface)
+    ALPHA1 = interface.bottom.lattice_constant
+    ALPHA2 = interface.top.lattice_constant
+    poly_degree = args.poly_degree
+    phi0_deg = args.phi0
+    n_grid = args.n_grid
+    n_cells = args.n_cells
+    pixel_size = args.pixel_size
+    max_iter = args.max_iter
+    OUT_DIR = _cli.get_output_dir(args)
+    slug = _cli.slugify(interface.name)
+    CACHE_PATH = OUT_DIR / f"{slug}_spatial_relaxed.npz"
+
+    _cli.print_interface_info(interface)
 
     # ----- Step 1: load polylines into a FringeSet -----
-    if not DATA_PATH.exists():
+    data_path = args.data_file
+    if not data_path.exists():
         print(
-            f"Data file {DATA_PATH} not found.\n"
-            "This example requires the maintainer-only .mat file. "
+            f"Data file {data_path} not found.\n"
+            "This example requires a .mat polyline data file. "
             "See the module docstring for the expected format."
         )
         return
-    print(f"Loading polylines from {DATA_PATH}")
-    fringes = FringeSet.from_matlab(DATA_PATH)
+    print(f"Loading polylines from {data_path}")
+    fringes = FringeSet.from_matlab(data_path)
     print(f"  family 1 (I): {len(fringes.i_fringes)} polylines")
     print(f"  family 2 (J): {len(fringes.j_fringes)} polylines")
 
     # ----- Step 2: fit registry polynomials I(r), J(r) -----
-    print(f"\nFitting registry polynomials of degree {POLYNOMIAL_DEGREE}...")
-    I_field, J_field = fringes.fit_registry_fields(order=POLYNOMIAL_DEGREE)
+    print(f"\nFitting registry polynomials of degree {poly_degree}...")
+    I_field, J_field = fringes.fit_registry_fields(order=poly_degree)
 
     # ----- Step 3: compute strain field on a regular grid -----
     print("Computing strain field on a regular grid...")
     xs = np.concatenate([f.x for f in fringes.fringes])
     ys = np.concatenate([f.y for f in fringes.fringes])
-    x_grid = np.linspace(xs.min(), xs.max(), N_GRID)
-    y_grid = np.linspace(ys.min(), ys.max(), N_GRID)
+    x_grid = np.linspace(xs.min(), xs.max(), n_grid)
+    y_grid = np.linspace(ys.min(), ys.max(), n_grid)
     X, Y = np.meshgrid(x_grid, y_grid)
 
     inside_grid = convex_hull_mask(xs, ys, X, Y)
 
     strain = compute_strain_field(
         X, Y, I_field, J_field,
-        alpha1=ALPHA1, alpha2=ALPHA2, phi0_deg=PHI0_DEG_DEFAULT,
+        alpha1=ALPHA1, alpha2=ALPHA2, phi0_deg=phi0_deg,
     )
     for key in ("theta", "eps_c", "eps_s"):
         strain[key] = np.where(inside_grid, strain[key], np.nan)
@@ -415,8 +450,9 @@ def main() -> None:
     if not args.no_relax and result is None:
         # ----- Step 4: build mesh and FEM gradient operators -----
         theta_avg = float(np.nanmean(np.abs(theta)))
-        print(f"\nBuilding finite mesh at θ_avg = {theta_avg:.3f}°...")
-        mesh, geom = _build_mesh_for_data(fringes, theta_avg)
+        print(f"\nBuilding finite mesh at theta_avg = {theta_avg:.3f} deg...")
+        mesh, geom = _build_mesh_for_data(fringes, theta_avg,
+                                           ALPHA1, ALPHA2, n_cells, pixel_size)
         disc = Discretization(mesh, geom)
         print(f"  Mesh: {mesh.n_vertices} verts, {mesh.n_triangles} triangles")
         print(f"  Average geometry: λ = {geom.wavelength:.2f} nm")
@@ -426,7 +462,7 @@ def main() -> None:
         print("Evaluating local strain field at mesh vertices...")
         vertex_strain = compute_strain_field(
             mesh.points[0], mesh.points[1], I_field, J_field,
-            alpha1=ALPHA1, alpha2=ALPHA2, phi0_deg=PHI0_DEG_DEFAULT,
+            alpha1=ALPHA1, alpha2=ALPHA2, phi0_deg=phi0_deg,
         )
         # The package's compute_strain_field reports -θ relative to the
         # MoireGeometry convention, so use |θ| for the IC.
@@ -543,15 +579,15 @@ def main() -> None:
         # ----- Step 7: relaxation via pseudo_dynamics -----
         cfg = SolverConfig(
             method="newton",
-            pixel_size=PIXEL_SIZE,
-            max_iter=MAX_ITER,
+            pixel_size=pixel_size,
+            max_iter=max_iter,
             gtol=1e-4,
             display=True,
         )
-        print(f"\nRunning relaxation (max {MAX_ITER} pseudo_dynamics steps)...")
+        print(f"\nRunning relaxation (max {max_iter} iterations)...")
         t0 = perf_counter()
         result = RelaxationSolver(cfg).solve(
-            moire_interface=MOSE2_WSE2_H_INTERFACE,
+            moire_interface=interface,
             theta_twist=geom.theta_twist,
             mesh=mesh,
             constraints=constraints,
@@ -570,8 +606,9 @@ def main() -> None:
     # ----- Scalar summary -----
     summary_lines = [
         "--- Spatial strain extraction + relaxation summary ---",
-        f"Polynomial degree:      {POLYNOMIAL_DEGREE}",
-        f"phi0 (deg):             {PHI0_DEG_DEFAULT}",
+        f"Interface:              {interface.name}",
+        f"Polynomial degree:      {poly_degree}",
+        f"phi0 (deg):             {phi0_deg}",
         f"|theta| range:          "
         f"[{np.nanmin(np.abs(theta)):.3f}, {np.nanmax(np.abs(theta)):.3f}]",
         f"|theta| mean:           {np.nanmean(np.abs(theta)):.3f}",
@@ -587,7 +624,7 @@ def main() -> None:
             f"Relaxation wall time:   {elapsed:.1f} s",
         ]
     print("\n" + "\n".join(summary_lines))
-    (OUT_DIR / "spatial_strain_summary.txt").write_text(
+    (OUT_DIR / f"{slug}_spatial_summary.txt").write_text(
         "\n".join(summary_lines) + "\n"
     )
 
@@ -596,7 +633,9 @@ def main() -> None:
 
     _plot_headline(
         fringes, X, Y, strain, mesh, result,
-        OUT_DIR / "spatial_strain_relaxation.png",
+        OUT_DIR / f"{slug}_spatial_relaxation.png",
+        poly_degree=poly_degree,
+        phi0_deg=phi0_deg,
     )
 
 
