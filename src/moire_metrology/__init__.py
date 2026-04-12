@@ -35,7 +35,7 @@ from .mesh import MoireMesh, generate_finite_mesh
 from .pinning import PinningMap, InteractivePinner
 from .solver import RelaxationSolver, SolverConfig
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "GSFESurface",
