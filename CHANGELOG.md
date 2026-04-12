@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-12
+
+### Changed (breaking)
+
+- **Three separate bilayer example scripts replaced by a single
+  `bilayer_relaxation.py` with a `--preset` system.** The former
+  `bilayer_graphene_relaxation.py`, `hbn_relaxation.py`, and
+  `tmd_heterostructure.py` were identical except for default
+  parameters.  The new script accepts `--preset graphene` (default),
+  `--preset hbn`, or `--preset tmd`.  Any explicit CLI flag overrides
+  the preset value.
+
+### Added
+
+- **CLI-configurable examples.** All bundled examples now accept
+  `--interface` (bundled name or TOML file path), `--theta-twist`,
+  `--pixel-size`, `--method`, `--max-iter`, `--gtol`, `--no-plots`,
+  `--force`, and `--output-dir`.  The multilayer example adds
+  `--n-top`, `--n-bottom`, and iterative-solver flags.  The strain
+  extraction example adds `--heterostrain`, `--n-cells`, and
+  `--skip-part-a` / `--skip-part-b`.
+- **`--list-interfaces` flag** on every example.  Prints a detailed
+  table of all bundled interfaces (materials, GSFE coefficients,
+  literature references, CLI alias) and exits.
+- **Shared `examples/_cli.py` helper** — interface name resolution
+  with fuzzy matching (e.g. `graphene`, `mose2-wse2-h`, `hbn-aap`
+  all work), TOML loading, graceful error messages for unsupported
+  configurations (heterointerface on multilayer, missing TOML file,
+  unknown interface name).
+- **`docs/examples.md`** — guide to all bundled examples with preset
+  tables, CLI argument reference, and usage recipes.
+- **`docs/custom-materials.md`** — TOML schema reference for defining
+  custom materials and interfaces, unit conventions, GSFE literature
+  pointers, and limitation notes.
+- **Example smoke tests in CI** — new `example smoke tests` job
+  running `bilayer_relaxation.py --preset tmd`, Part A of the strain
+  extraction example, `--list-interfaces`, and TOML interface loading.
+  `ruff check` extended to cover `examples/`.
+
+### Fixed
+
+- **Duplicate `--list-interfaces` argparse registration** in
+  `strain_extraction_and_pinning.py` and `spatial_strain_relaxation.py`
+  caused an `ArgumentError` at parse time (PR #21).
+
 ## [0.4.1] - 2026-04-12
 
 ### Fixed
@@ -329,7 +374,8 @@ Initial public release.
 - Strain extraction: alpha double-counting in the deformation matrix (#6).
 - Various bug fixes and example/README polish from the hardening pass.
 
-[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dorrih/moire_metrology/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/dorrih/moire_metrology/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/dorrih/moire_metrology/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dorrih/moire_metrology/releases/tag/v0.3.0
