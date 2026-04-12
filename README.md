@@ -88,18 +88,34 @@ result.plot_local_twist(n_tile=2)     # AA vortex map
 
 For a complete worked example reproducing the hallmark TBG relaxation
 pattern (low twist, AA vortices over AB/BA domains), see
-[`examples/bilayer_graphene_relaxation.py`](examples/bilayer_graphene_relaxation.py).
+[`examples/bilayer_relaxation.py`](examples/bilayer_relaxation.py).
 The example caches the relaxed state to a `.npz` so you can iterate on plots
 without re-solving.
 
-Two additional bundled examples cover the heterointerface cases:
-[`examples/hbn_relaxation.py`](examples/hbn_relaxation.py) — graphene
-on hBN, where the 1.6% lattice mismatch drives a single-minimum
-hexagonal moiré pattern even at zero twist; and
-[`examples/tmd_heterostructure.py`](examples/tmd_heterostructure.py) —
-H-stacked MoSe2/WSe2, where the deep moiré potential and broken
-inversion symmetry give a three-minimum domain pattern with sharp
-boundaries. Both run end-to-end in well under a minute.
+All examples are CLI-configurable — you can switch materials, twist angles,
+and solver parameters without editing code:
+
+```bash
+# Default: twisted bilayer graphene at 0.2 deg
+python examples/bilayer_relaxation.py
+
+# Graphene on hBN (pure lattice-mismatch moire)
+python examples/bilayer_relaxation.py --preset hbn
+
+# H-stacked MoSe2/WSe2 (deep moire potential)
+python examples/bilayer_relaxation.py --preset tmd
+
+# Custom interface from a TOML file
+python examples/bilayer_relaxation.py --interface my_interface.toml --theta-twist 0.5
+
+# List all bundled interfaces
+python examples/bilayer_relaxation.py --list-interfaces
+```
+
+See [`docs/examples.md`](docs/examples.md) for a full guide to all
+bundled examples, CLI arguments, and presets.  See
+[`docs/custom-materials.md`](docs/custom-materials.md) for the TOML
+schema reference for defining your own materials and interfaces.
 
 ### Strain extraction from a measured moire
 
