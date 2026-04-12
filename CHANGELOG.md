@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-12
+
+### Changed
+
+- **Version is now derived from git tags** via `hatch-vcs`. The
+  hard-coded `version` field in `pyproject.toml` and `__version__` in
+  `__init__.py` are replaced by a build-time `_version.py` generated
+  from the nearest `v*` tag. No manual version bumps needed for future
+  releases — just tag and push.
+- **Status upgraded from Alpha to Beta** in README and PyPI classifier.
+
+### Added
+
+- **PyPI publishing.** `pip install moire-metrology` now works. A
+  `release.yml` GitHub Actions workflow builds and publishes sdist +
+  wheel to PyPI via OIDC trusted publishing on every `v*` tag push.
+
 ## [0.6.0] - 2026-04-12
 
 ### Added
@@ -414,7 +431,8 @@ Initial public release.
 - Strain extraction: alpha double-counting in the deformation matrix (#6).
 - Various bug fixes and example/README polish from the hardening pass.
 
-[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/dorrih/moire_metrology/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/dorrih/moire_metrology/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dorrih/moire_metrology/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/dorrih/moire_metrology/compare/v0.4.0...v0.4.1
