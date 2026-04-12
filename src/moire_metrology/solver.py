@@ -57,8 +57,23 @@ class SolverConfig:
     max_iter : int
         Maximum number of optimizer iterations.
     gtol : float
-        Gradient norm tolerance for convergence (used by 'newton' and
-        'pseudo_dynamics'; both use absolute OR relative-to-initial criterion).
+        Absolute gradient norm tolerance for convergence. Convergence is
+        declared when ``|grad| < gtol``. For L-BFGS-B this is passed to
+        scipy as the ``gtol`` option (max-norm threshold).
+    rtol : float
+        Relative gradient tolerance. Convergence is declared when
+        ``|grad| / |grad_initial| < rtol``, i.e. the gradient has dropped
+        by this factor from its initial value. This criterion matters at
+        low twist angles where the absolute gradient norm at the energy
+        minimum can be O(1-10) due to large total energies, making any
+        reasonable absolute gtol unreachable. For L-BFGS-B the check is
+        applied post-hoc after scipy returns.
+    etol : float
+        Energy stagnation tolerance. If the fractional energy improvement
+        over the last ``etol_window`` accepted steps falls below ``etol``,
+        convergence is declared (newton and pseudo_dynamics only).
+    etol_window : int
+        Number of recent iterations over which to measure energy stagnation.
     pixel_size : float
         Target mesh element size in nm.
     n_scale : int
@@ -97,6 +112,9 @@ class SolverConfig:
     method: str = "newton"
     max_iter: int = 200
     gtol: float = 1e-6
+    rtol: float = 1e-4
+    etol: float = 1e-6
+    etol_window: int = 5
     pixel_size: float = 0.2
     n_scale: int = 1
     display: bool = True
@@ -109,7 +127,9 @@ class SolverConfig:
 
 
 def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
-                  max_iter: int, gtol: float, display: bool,
+                  max_iter: int, gtol: float, rtol: float,
+                  etol: float, etol_window: int,
+                  display: bool,
                   linear_solver: str = "direct",
                   linear_solver_tol: float = 1e-6,
                   linear_solver_maxiter: int = 500) -> dict:
@@ -157,15 +177,10 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     # Track best iterate for KeyboardInterrupt recovery.
     U_best, E_best, grad_best = U.copy(), E, grad.copy()
 
-    # Energy-stagnation early exit: if the fractional energy improvement
-    # over the last etol_window accepted steps falls below etol, declare
-    # convergence.
-    etol = 1e-8
-    etol_window = 5
     recent_E: list[float] = [E]
 
     def converged(gn: float) -> bool:
-        return gn < gtol or (gn / gnorm0) < gtol
+        return gn < gtol or (gn / gnorm0) < rtol
 
     def stagnated() -> bool:
         if len(recent_E) < etol_window + 1:
@@ -185,10 +200,20 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     try:
         for nit in range(1, max_iter + 1):
             if converged(gnorm):
-                exit_reason = "converged"
+                if gnorm < gtol:
+                    exit_reason = (
+                        f"converged (absolute |grad| = {gnorm:.2e} < gtol = {gtol:.0e})")
+                else:
+                    exit_reason = (
+                        f"converged (relative |grad|/|grad0| = "
+                        f"{gnorm / gnorm0:.2e} < rtol = {rtol:.0e})")
                 break
             if stagnated():
-                exit_reason = "energy stagnation"
+                window = recent_E[-(etol_window + 1):]
+                de = (window[0] - window[-1]) / max(abs(window[-1]), 1.0)
+                exit_reason = (
+                    f"converged (energy stagnation dE/E = {de:.2e} "
+                    f"< etol = {etol:.0e} over {etol_window} iters)")
                 break
 
             H = energy_func.hessian(U, modified=True)
@@ -255,8 +280,9 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
 
             if display and (nit % 5 == 0 or nit <= 3):
                 elapsed = perf_counter() - t_start
-                print(f"  iter {nit:4d}: E = {E:.4f}, |grad| = {gnorm:.2e}, "
-                      f"mu = {mu:.2e}, t = {elapsed:.1f}s")
+                rel = gnorm / gnorm0
+                print(f"  iter {nit:4d}: E = {E:.4f}, |grad| = {gnorm:.2e} "
+                      f"(rel {rel:.2e}), mu = {mu:.2e}, t = {elapsed:.1f}s")
     except KeyboardInterrupt:
         interrupted = True
         exit_reason = "interrupted (returning best iterate)"
@@ -267,8 +293,8 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     if exit_reason is None:
         exit_reason = f"max iterations ({max_iter}) reached"
 
-    success = (not interrupted) and (
-        converged(np.linalg.norm(grad_best)) or exit_reason == "energy stagnation"
+    success = (not interrupted) and exit_reason is not None and (
+        "converged" in exit_reason
     )
     return {
         "x": U_best, "fun": E_best, "jac": grad_best, "nit": nit, "nfev": nfev,
@@ -277,7 +303,8 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
 
 
 def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
-                           max_iter: int, gtol: float, beta: float,
+                           max_iter: int, gtol: float, rtol: float,
+                           beta: float,
                            dt0: float | None, display: bool,
                            linear_solver: str = "direct",
                            linear_solver_tol: float = 1e-6,
@@ -344,7 +371,7 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
 
     # Convergence: same OR-criterion as the Newton solver.
     def converged(gn: float) -> bool:
-        return gn < gtol or (gn / gnorm0) < gtol
+        return gn < gtol or (gn / gnorm0) < rtol
 
     # Mass matrix: identity (matches the periodic-mesh case in the
     # MATLAB code where Amat0 has 1's on the interior diagonal). A
@@ -405,7 +432,7 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     consec_rejects = 0
 
     for nit in range(1, max_iter + 1):
-        if converged(gnorm):
+        if count_conv >= count_conv_required:
             break
 
         rhs = -dt * grad
@@ -503,15 +530,22 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
 
         if display and (nit % 10 == 0 or nit <= 3):
             elapsed = perf_counter() - t_start
-            print(f"  iter {nit:4d}: E = {E:.4f}, |grad| = {gnorm:.2e}, "
-                  f"dt = {dt:.2e}, t = {elapsed:.1f}s")
+            rel = gnorm / gnorm0
+            print(f"  iter {nit:4d}: E = {E:.4f}, |grad| = {gnorm:.2e} "
+                  f"(rel {rel:.2e}), dt = {dt:.2e}, t = {elapsed:.1f}s")
 
         if count_conv >= count_conv_required:
             break
 
     success = converged(gnorm) and count_conv >= count_conv_required
     if success:
-        message = "converged"
+        if gnorm < gtol:
+            message = (
+                f"converged (absolute |grad| = {gnorm:.2e} < gtol = {gtol:.0e})")
+        else:
+            message = (
+                f"converged (relative |grad|/|grad0| = "
+                f"{gnorm / gnorm0:.2e} < rtol = {rtol:.0e})")
     elif nit >= max_iter:
         message = f"max iterations ({max_iter}) reached"
     else:
@@ -816,14 +850,15 @@ class RelaxationSolver:
         if cfg.method in ("newton", "pseudo_dynamics"):
             if cfg.method == "newton":
                 res = _newton_solve(
-                    energy_func, U0, cfg.max_iter, cfg.gtol, cfg.display,
+                    energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
+                    cfg.etol, cfg.etol_window, cfg.display,
                     linear_solver=cfg.linear_solver,
                     linear_solver_tol=cfg.linear_solver_tol,
                     linear_solver_maxiter=cfg.linear_solver_maxiter,
                 )
             else:
                 res = _pseudo_dynamics_solve(
-                    energy_func, U0, cfg.max_iter, cfg.gtol,
+                    energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
                     beta=cfg.beta, dt0=cfg.dt0, display=cfg.display,
                     linear_solver=cfg.linear_solver,
                     linear_solver_tol=cfg.linear_solver_tol,
@@ -841,8 +876,10 @@ class RelaxationSolver:
             result.success = res["success"]
         else:
             # Fallback to scipy.optimize.minimize (L-BFGS-B, etc.)
-            # Note: `disp`/`iprint` options are deprecated in SciPy 1.18 for
-            # L-BFGS-B, so we do not pass them — the solver is silent by default.
+            # Capture initial gradient norm for post-hoc relative check.
+            _, grad0 = energy_func(U0)
+            gnorm0 = max(np.linalg.norm(grad0), 1.0)
+
             options = {"maxiter": cfg.max_iter, "gtol": cfg.gtol}
             if cfg.method == "L-BFGS-B":
                 options["maxcor"] = 20
@@ -851,6 +888,19 @@ class RelaxationSolver:
             result = minimize(
                 energy_func, U0, method=cfg.method, jac=True, options=options,
             )
+
+            # Post-hoc relative convergence check: scipy's L-BFGS-B only
+            # uses an absolute gtol.  If the relative criterion is met,
+            # override success/message so the result honestly reports
+            # convergence even when the absolute gtol was unreachable.
+            if not result.success and hasattr(result, "jac"):
+                gnorm_final = np.linalg.norm(result.jac)
+                rel = gnorm_final / gnorm0
+                if rel < cfg.rtol:
+                    result.success = True
+                    result.message = (
+                        f"converged (relative |grad|/|grad0| = "
+                        f"{rel:.2e} < rtol = {cfg.rtol:.0e})")
 
         if cfg.display:
             elapsed = perf_counter() - t_start
