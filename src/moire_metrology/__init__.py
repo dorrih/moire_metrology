@@ -35,7 +35,10 @@ from .mesh import MoireMesh, generate_finite_mesh
 from .pinning import PinningMap, InteractivePinner
 from .solver import RelaxationSolver, SolverConfig
 
-__version__ = "0.6.0"
+try:
+    from ._version import __version__
+except ImportError:  # editable install without hatch-vcs
+    __version__ = "0.0.0.dev0"
 
 __all__ = [
     "GSFESurface",

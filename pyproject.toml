@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "moire-metrology"
-version = "0.6.0"
+dynamic = ["version"]
 description = "Atomic relaxation, strain extraction, and multi-layer analysis for twisted 2D van der Waals heterostructures"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["moire", "relaxation", "van-der-waals", "heterostructure", "twistronics", "strain", "graphene", "hbn"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
@@ -42,6 +42,12 @@ Issues = "https://github.com/dorrih/moire_metrology/issues"
 dev = ["pytest", "pytest-cov", "ruff", "build"]
 meshpy = ["meshpy"]
 
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/moire_metrology/_version.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/moire_metrology"]
 
@@ -51,6 +57,7 @@ include = [
     "src/moire_metrology/**/*.py",
     "tests/**/*.py",
     "examples/**/*.py",
+    "examples/data/*",
     "README.md",
     "LICENSE",
     "pyproject.toml",

@@ -16,11 +16,10 @@ collection of MATLAB scripts.
 
 ## Status
 
-Alpha. The package is not yet on PyPI; install from source. The
-single-interface relaxation, strain extraction, multi-layer stack, and
-finite-mesh point-pinning APIs are all in place and covered by 70+ fast
-tests plus integration tests gated behind a `slow` marker. The
-implicit pseudo-time-stepping solver from the paper MATLAB code has
+Beta. The single-interface relaxation, strain extraction, multi-layer
+stack, and finite-mesh point-pinning APIs are all in place and covered
+by 70+ fast tests plus integration tests gated behind a `slow` marker.
+The implicit pseudo-time-stepping solver from the paper MATLAB code has
 been ported and is the recommended choice for stiff multi-layer / low
 twist angle problems; for routine bilayer work the damped Newton path
 is usually faster.
@@ -58,14 +57,21 @@ is usually faster.
 ## Installation
 
 ```bash
-git clone <this-repo>
+pip install moire-metrology
+```
+
+Or install from source for development:
+
+```bash
+git clone https://github.com/dorrih/moire_metrology.git
 cd moire_metrology
 python3.11 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 ```
 
 Requires Python 3.10+. The package depends on `numpy`, `scipy`, and
-`matplotlib`. The `[dev]` extra adds `pytest`, `pytest-cov`, and `ruff`.
+`matplotlib`. The `[dev]` extra adds `pytest`, `pytest-cov`, `ruff`,
+and `build`.
 
 ## Quick start
 
