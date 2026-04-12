@@ -102,6 +102,20 @@ class RelaxationResult:
             return 0.0
         return (self.unrelaxed_energy - self.total_energy) / self.unrelaxed_energy
 
+    @property
+    def converged(self) -> bool:
+        """Whether the optimizer reported successful convergence."""
+        if self.optimizer_result is None:
+            return True
+        return getattr(self.optimizer_result, "success", True)
+
+    @property
+    def convergence_message(self) -> str:
+        """Human-readable description of the convergence outcome."""
+        if self.optimizer_result is None:
+            return ""
+        return str(getattr(self.optimizer_result, "message", ""))
+
     def local_twist(self, stack: int = 1, layer: int = 0) -> np.ndarray:
         """Compute local twist angle (degrees) at each vertex.
 

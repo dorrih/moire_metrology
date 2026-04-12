@@ -270,3 +270,73 @@ class TestEnergyGradient:
                 grad[idx], grad_fd, rtol=1e-3, atol=1e-8,
                 err_msg=f"Gradient mismatch at index {idx}"
             )
+
+
+class TestConvergenceCriteria:
+    """Verify the convergence reporting for each solver method."""
+
+    _common = dict(pixel_size=1.5, max_iter=80, display=False,
+                   min_mesh_points=30)
+
+    def test_newton_reports_success(self):
+        cfg = SolverConfig(method="newton", gtol=1e-3, rtol=1e-2,
+                           **self._common)
+        result = RelaxationSolver(cfg).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+        )
+        assert result.converged
+        assert "converged" in result.convergence_message
+
+    def test_lbfgsb_reports_success(self):
+        from moire_metrology import MOSE2_WSE2_H_INTERFACE
+        # TMD interface converges reliably with L-BFGS-B.
+        cfg = SolverConfig(method="L-BFGS-B", gtol=1e-3, rtol=1e-2,
+                           max_iter=300, pixel_size=0.5, display=False,
+                           min_mesh_points=30)
+        result = RelaxationSolver(cfg).solve(
+            moire_interface=MOSE2_WSE2_H_INTERFACE, theta_twist=1.5,
+        )
+        assert result.converged
+        assert result.convergence_message  # non-empty
+
+    @pytest.mark.slow
+    def test_pseudo_dynamics_reports_success(self):
+        # pseudo_dynamics needs a finer mesh and more iterations to
+        # converge; only run this in the slow suite.
+        cfg = SolverConfig(method="pseudo_dynamics", gtol=1e-2, rtol=1e-1,
+                           pixel_size=1.0, max_iter=200, display=False,
+                           min_mesh_points=50)
+        result = RelaxationSolver(cfg).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+        )
+        assert result.converged
+        assert "converged" in result.convergence_message
+
+    def test_rtol_controls_relative_convergence(self):
+        """A tight rtol should require more iterations than a loose one."""
+        cfg_loose = SolverConfig(method="newton", gtol=1e-12, rtol=1e-1,
+                                 **self._common)
+        res_loose = RelaxationSolver(cfg_loose).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+        )
+        cfg_tight = SolverConfig(method="newton", gtol=1e-12, rtol=1e-4,
+                                 **self._common)
+        res_tight = RelaxationSolver(cfg_tight).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+        )
+        # With unreachable absolute gtol, both rely on rtol (or etol).
+        # The tight rtol should take at least as many iterations.
+        nit_loose = res_loose.optimizer_result.nit
+        nit_tight = res_tight.optimizer_result.nit
+        assert nit_tight >= nit_loose
+
+    def test_converged_property_false_on_max_iter(self):
+        """With very tight tolerances and 1 iteration, should not converge."""
+        cfg = SolverConfig(method="newton", gtol=1e-30, rtol=1e-30,
+                           etol=1e-30, max_iter=1, display=False,
+                           min_mesh_points=30, pixel_size=1.5)
+        result = RelaxationSolver(cfg).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+        )
+        assert not result.converged
+        assert "max iterations" in result.convergence_message

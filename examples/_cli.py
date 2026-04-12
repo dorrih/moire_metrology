@@ -268,7 +268,13 @@ def add_common_args(
         "--gtol",
         type=float,
         default=default_gtol,
-        help="Gradient norm tolerance. Default: %(default)s",
+        help="Absolute gradient norm tolerance. Default: %(default)s",
+    )
+    parser.add_argument(
+        "--rtol",
+        type=float,
+        default=1e-4,
+        help="Relative gradient tolerance (|grad|/|grad0|). Default: %(default)s",
     )
     parser.add_argument(
         "--no-plots",
@@ -303,6 +309,7 @@ def build_solver_config(
         pixel_size=args.pixel_size,
         max_iter=args.max_iter,
         gtol=args.gtol,
+        rtol=getattr(args, "rtol", 1e-4),
         display=True,
     )
     # Pass through iterative-solver args if present on the namespace.
