@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-12
+
+### Added
+
+- **`SolverConfig.rtol`** — relative gradient tolerance. Convergence is
+  declared when `|grad| / |grad_initial| < rtol`. This criterion matters
+  at low twist angles where the absolute gradient norm at the energy
+  minimum can be O(1–10) due to large total energies, making any
+  reasonable absolute `gtol` unreachable. Default: `1e-4`.
+- **`SolverConfig.etol` and `SolverConfig.etol_window`** — energy
+  stagnation tolerance and window size. If the fractional energy
+  improvement over the last `etol_window` accepted steps falls below
+  `etol`, the Newton solver declares convergence. Previously these were
+  hard-coded internal constants; they are now user-configurable.
+  Defaults: `etol=1e-6`, `etol_window=5`.
+- **`RelaxationResult.converged`** property — boolean indicating whether
+  the optimizer reported successful convergence.
+- **`RelaxationResult.convergence_message`** property — human-readable
+  description of the convergence outcome (e.g. which criterion was met,
+  or "max iterations reached").
+- **Post-hoc relative convergence check for L-BFGS-B.** SciPy's
+  L-BFGS-B only supports an absolute `gtol`. The solver now captures the
+  initial gradient norm and checks `rtol` after scipy returns, overriding
+  the success flag when the relative criterion is met.
+- Solver display output now includes the relative gradient ratio
+  `(rel X.XXe-XX)` alongside the absolute gradient norm.
+- Convergence exit messages now report which criterion triggered
+  (absolute gtol, relative rtol, or energy stagnation) with numeric
+  values.
+
+### Fixed
+
+- **`pseudo_dynamics` solver always reported failure even when
+  converged.** The top-of-loop early exit (`if converged(gnorm): break`)
+  fired after a single converged step, but the success flag required
+  `count_conv >= 3` consecutive converged steps. The early break
+  prevented `count_conv` from ever reaching 3, so the solver reported
+  `success=False` on every run. Fixed by replacing the early break with
+  `if count_conv >= count_conv_required` (#23).
+
 ## [0.5.0] - 2026-04-12
 
 ### Changed (breaking)
@@ -374,7 +414,8 @@ Initial public release.
 - Strain extraction: alpha double-counting in the deformation matrix (#6).
 - Various bug fixes and example/README polish from the hardening pass.
 
-[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/dorrih/moire_metrology/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dorrih/moire_metrology/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/dorrih/moire_metrology/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/dorrih/moire_metrology/compare/v0.3.0...v0.4.0

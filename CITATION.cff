@@ -12,8 +12,8 @@ type: software
 authors:
   - family-names: Halbertal
     given-names: Dorri
-version: 0.1.0
-date-released: 2026-04-08
+version: 0.6.0
+date-released: 2026-04-12
 license: MIT
 doi: "10.5281/zenodo.19468557"
 identifiers:
