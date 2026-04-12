@@ -317,10 +317,6 @@ def main() -> None:
     )
     _cli.add_interface_arg(parser, default=DEFAULT_INTERFACE)
     parser.add_argument(
-        "--list-interfaces", action="store_true",
-        help="List all bundled interfaces with parameters and exit.",
-    )
-    parser.add_argument(
         "--data-file", type=Path, default=DEFAULT_DATA_PATH, metavar="PATH",
         help="Path to the .mat polyline data file. Default: %(default)s",
     )

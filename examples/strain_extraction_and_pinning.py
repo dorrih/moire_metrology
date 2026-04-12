@@ -334,10 +334,6 @@ def main() -> None:
     )
     _cli.add_interface_arg(parser, default="mose2-wse2-h")
     parser.add_argument(
-        "--list-interfaces", action="store_true",
-        help="List all bundled interfaces with parameters and exit.",
-    )
-    parser.add_argument(
         "--theta-twist", type=float, default=0.5, metavar="DEG",
         help="Twist angle for Part B (degrees). Default: %(default)s",
     )
