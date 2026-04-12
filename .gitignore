@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+src/moire_metrology/_version.py
 dist/
 build/
 *.egg
