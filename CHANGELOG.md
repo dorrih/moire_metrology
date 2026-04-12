@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-12
+
+### Fixed
+
+- **Spurious moire phase on homobilayer GSFE pairs.** When both layers
+  of a homobilayer used the same Bernal stacking function, the solver
+  injected an incorrect stacking offset that distorted the GSFE
+  landscape. Fixed by detecting the homobilayer case and zeroing the
+  intra-flake offset. Reproduces Fig 4 of Halbertal et al.
+  arXiv:2206.06395 correctly (PR #18).
+
 ## [0.4.0] - 2026-04-10
 
 ### Changed (breaking)
@@ -318,7 +329,8 @@ Initial public release.
 - Strain extraction: alpha double-counting in the deformation matrix (#6).
 - Various bug fixes and example/README polish from the hardening pass.
 
-[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/dorrih/moire_metrology/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/dorrih/moire_metrology/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dorrih/moire_metrology/releases/tag/v0.3.0
 [0.2.0]: https://github.com/dorrih/moire_metrology/releases/tag/v0.2.0
