@@ -30,6 +30,7 @@ of MATLAB scripts.
 
 installation
 quickstart
+theory
 examples
 custom-materials
 ```

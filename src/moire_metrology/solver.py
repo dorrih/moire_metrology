@@ -1,6 +1,7 @@
 """High-level solver API for moire relaxation.
 
-Typical usage:
+Typical usage::
+
     from moire_metrology import RelaxationSolver
     from moire_metrology.interfaces import GRAPHENE_GRAPHENE
 
@@ -42,18 +43,20 @@ class SolverConfig:
     Parameters
     ----------
     method : str
-        Optimization method:
-        - 'newton' (default): Newton's method with sparse direct Hessian solve.
-          Fast convergence using precomputed elastic Hessian + vertex-diagonal GSFE Hessian.
-          Can stall on multi-layer systems at low twist (Hessian becomes nearly
-          indefinite); use 'pseudo_dynamics' for those cases.
-        - 'pseudo_dynamics': implicit theta-method on the gradient flow
-          dU/dt = -∇E. At each step solves (M + β·dt·H)·ΔU = -dt·grad with
-          adaptive dt and energy-monitored step rejection. More robust than
-          Newton on stiff/multi-layer systems. Ports the algorithm used in
-          the paper MATLAB code (relaxation_code_2D_solver_periodic_ver6.m).
-        - 'L-BFGS-B': Gradient-only quasi-Newton via scipy.optimize.minimize.
-          Slower convergence but no Hessian needed.
+        Optimization method.
+
+        - ``'newton'`` (default) -- Newton's method with sparse direct Hessian
+          solve. Fast convergence using precomputed elastic Hessian +
+          vertex-diagonal GSFE Hessian. Can stall on multi-layer systems at
+          low twist (Hessian becomes nearly indefinite); use
+          ``'pseudo_dynamics'`` for those cases.
+        - ``'pseudo_dynamics'`` -- implicit theta-method on the gradient flow
+          dU/dt = -nabla E. At each step solves (M + beta*dt*H)*dU = -dt*grad
+          with adaptive dt and energy-monitored step rejection. More robust
+          than Newton on stiff/multi-layer systems. Ports the algorithm used
+          in the paper MATLAB code.
+        - ``'L-BFGS-B'`` -- Gradient-only quasi-Newton via
+          scipy.optimize.minimize. Slower convergence but no Hessian needed.
     max_iter : int
         Maximum number of optimizer iterations.
     gtol : float
@@ -90,16 +93,17 @@ class SolverConfig:
         Initial pseudo-time step for the 'pseudo_dynamics' solver. If None,
         chosen automatically as ~1/(K1+G1) so that dt0·\|H\| ~ 1.
     linear_solver : str
-        Linear-system solver used inside each pseudo_dynamics step:
-        - 'direct' (default): build the sparse Hessian explicitly and call
-          spsolve. Per-iteration cost is the LU factorization, which scales
-          like O(n_sol^1.5) on 2D meshes. Best for small/moderate problems.
-        - 'iterative': matrix-free preconditioned MINRES, using only
-          Hessian-vector products via energy_func.hessp(U, p) and a Jacobi
-          preconditioner from the diagonal of the constant elastic Hessian.
-          Much faster per iteration on large problems (n_sol >> 10^4).
-          Uses MINRES (not CG) so it stays robust when β·dt·H is symmetric
-          but indefinite.
+        Linear-system solver used inside each pseudo_dynamics step.
+
+        - ``'direct'`` (default) -- build the sparse Hessian explicitly and
+          call spsolve. Per-iteration cost is the LU factorization, which
+          scales like O(n_sol^1.5) on 2D meshes. Best for small/moderate
+          problems.
+        - ``'iterative'`` -- matrix-free preconditioned MINRES, using only
+          Hessian-vector products and a Jacobi preconditioner from the
+          diagonal of the constant elastic Hessian. Much faster per iteration
+          on large problems (n_sol >> 10^4). Uses MINRES (not CG) so it stays
+          robust when the operator is symmetric but indefinite.
     linear_solver_tol : float
         Relative-residual tolerance for the iterative linear solver. Only
         used when linear_solver='iterative'. Default 1e-6.
