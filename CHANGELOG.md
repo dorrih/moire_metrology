@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-04-13
+
+### Fixed
+
+- **Moire unit cell orientation was wrong for heterointerfaces with
+  lattice mismatch.** `MoireGeometry.moire_matrix` used `R(-theta)`
+  where the stacking phase formula requires `R(+theta)`. The moire
+  cell had the correct wavelength but the wrong orientation, so the
+  GSFE did not tile periodically across cell boundaries. For graphene
+  homobilayers (delta=0) the error was ~1-2% per cell and invisible;
+  for heterointerfaces like MoSe2/WSe2 (delta~0.18%) it was ~10-19%
+  per cell and clearly visible as stitching discontinuities in tiled
+  stacking-energy maps. Fix: `self.R_twist` -> `self.R_twist.T` in
+  `lattice.py` (#29).
+- **Strain extraction sweep had a branch discontinuity.** The
+  `strain_extraction_and_pinning.py` example always passed
+  `phi0_guess=0` to `get_strain_minimize_compression`, causing the
+  phi0 optimizer to jump between branches at certain dphi values and
+  producing a discontinuous twist-angle curve. Fixed by seeding from
+  the symmetric point (dphi=60) and propagating phi0 across the
+  sweep (#29).
+
+### Added
+
+- **Sphinx documentation site** with furo theme, deployed to GitHub
+  Pages at `dorrih.github.io/moire_metrology/`. Pages: installation,
+  quick start, theory background, examples with embedded figures, custom
+  materials, API reference (auto-generated from docstrings), references,
+  and changelog (#27, #28, #29).
+- **Bundled polyline data** for the spatial strain extraction example.
+  `examples/data/mose2_wse2_polylines.csv` contains 700 traced moire
+  fringe points (62 polylines, two families) from an H-MoSe2/WSe2
+  sample, making `spatial_strain_relaxation.py` fully reproducible
+  without the previously required private `.mat` file (#29).
+
+### Changed
+
+- README slimmed from ~360 to ~120 lines; verbose sections moved to
+  the documentation site (#28).
+
 ## [0.7.0] - 2026-04-12
 
 ### Changed
@@ -433,7 +473,8 @@ Initial public release.
 - Strain extraction: alpha double-counting in the deformation matrix (#6).
 - Various bug fixes and example/README polish from the hardening pass.
 
-[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/dorrih/moire_metrology/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/dorrih/moire_metrology/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/dorrih/moire_metrology/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/dorrih/moire_metrology/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dorrih/moire_metrology/compare/v0.4.1...v0.5.0
