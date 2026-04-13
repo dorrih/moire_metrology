@@ -88,7 +88,7 @@ class SolverConfig:
         unconditionally stable). Values in [0.5, 1.0] are stable.
     dt0 : float or None
         Initial pseudo-time step for the 'pseudo_dynamics' solver. If None,
-        chosen automatically as ~1/(K1+G1) so that dt0·|H| ~ 1.
+        chosen automatically as ~1/(K1+G1) so that dt0·\|H\| ~ 1.
     linear_solver : str
         Linear-system solver used inside each pseudo_dynamics step:
         - 'direct' (default): build the sparse Hessian explicitly and call
