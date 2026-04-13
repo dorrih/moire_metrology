@@ -10,6 +10,7 @@ build/
 *.npz
 *.mat
 *.png
+!docs/images/*.png
 poetry.lock
 .claude/
 .venv/

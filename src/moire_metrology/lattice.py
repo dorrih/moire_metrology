@@ -92,11 +92,15 @@ class MoireGeometry:
 
     @property
     def moire_matrix(self) -> np.ndarray:
-        """Mr = R(-theta) - (1+delta)*I, shape (2,2).
+        """Mr = R(+theta) - (1+delta)*I, shape (2,2).
 
         The moire vectors satisfy: [V1|V2] = inv(Mr) * B.
+
+        Using R(+theta) (not R(-theta)) ensures that the stacking
+        phases jump by exact integer multiples of 2*pi across V1 and
+        V2, so the GSFE tiles perfectly over the moire unit cell.
         """
-        return self.R_twist - (1.0 + self.delta) * np.eye(2)
+        return self.R_twist.T - (1.0 + self.delta) * np.eye(2)
 
     @property
     def moire_vectors(self) -> tuple[np.ndarray, np.ndarray]:
@@ -116,7 +120,7 @@ class MoireGeometry:
 
     @property
     def wavelength(self) -> float:
-        """Moire wavelength in nm (geometric mean of \|V1\| and \|V2\|)."""
+        r"""Moire wavelength in nm (geometric mean of \|V1\| and \|V2\|)."""
         V1, V2 = self.moire_vectors
         return np.sqrt(np.linalg.norm(V1) * np.linalg.norm(V2))
 

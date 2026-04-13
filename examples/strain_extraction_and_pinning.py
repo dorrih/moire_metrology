@@ -76,15 +76,58 @@ def part_a_strain_sweep(out_dir: Path, lattice_constant: float) -> None:
     eps_c = np.zeros_like(dphi_grid)
     eps_s = np.zeros_like(dphi_grid)
 
-    for k, dphi in enumerate(dphi_grid):
+    # Sweep outward from the symmetric point (dphi=60) so that the phi0
+    # branch tracker stays on the physical branch (positive theta).
+    idx_60 = int(np.argmin(np.abs(dphi_grid - 60.0)))
+
+    # Seed at dphi=60: find the phi0 that gives positive theta
+    from moire_metrology.strain import get_strain
+    seed = get_strain_minimize_compression(
+        alpha1=alpha, alpha2=alpha,
+        lambda1=lambda1, lambda2=lambda2,
+        phi1_deg=phi1_deg, phi2_deg=phi1_deg + dphi_grid[idx_60],
+    )
+    # If theta came out negative, flip phi0 by ~180 to reach the other branch
+    if seed.theta_twist < 0:
+        seed = get_strain(
+            alpha1=alpha, alpha2=alpha,
+            lambda1=lambda1, lambda2=lambda2,
+            phi1_deg=phi1_deg, phi2_deg=phi1_deg + dphi_grid[idx_60],
+            phi0=seed.phi0 + 180.0,
+        )
+
+    # Fill the seed point
+    theta_recovered[idx_60] = seed.theta_twist
+    eps_c[idx_60] = seed.eps_c
+    eps_s[idx_60] = abs(seed.eps_s)
+
+    # Sweep rightward from seed
+    phi0_prev = seed.phi0
+    for k in range(idx_60 + 1, len(dphi_grid)):
         result = get_strain_minimize_compression(
             alpha1=alpha, alpha2=alpha,
             lambda1=lambda1, lambda2=lambda2,
-            phi1_deg=phi1_deg, phi2_deg=phi1_deg + dphi,
+            phi1_deg=phi1_deg, phi2_deg=phi1_deg + dphi_grid[k],
+            phi0_guess=phi0_prev,
         )
         theta_recovered[k] = result.theta_twist
         eps_c[k] = result.eps_c
         eps_s[k] = abs(result.eps_s)
+        phi0_prev = result.phi0
+
+    # Sweep leftward from seed
+    phi0_prev = seed.phi0
+    for k in range(idx_60 - 1, -1, -1):
+        result = get_strain_minimize_compression(
+            alpha1=alpha, alpha2=alpha,
+            lambda1=lambda1, lambda2=lambda2,
+            phi1_deg=phi1_deg, phi2_deg=phi1_deg + dphi_grid[k],
+            phi0_guess=phi0_prev,
+        )
+        theta_recovered[k] = result.theta_twist
+        eps_c[k] = result.eps_c
+        eps_s[k] = abs(result.eps_s)
+        phi0_prev = result.phi0
 
     theta_unstrained_deg = 2.0 * np.degrees(np.arcsin(alpha / (2.0 * lambda1)))
 
