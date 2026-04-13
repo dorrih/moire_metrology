@@ -23,6 +23,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # from cross-reference ambiguity on re-exported names.
 suppress_warnings = [
     "ref.python",
+    "autodoc.duplicate_object",
 ]
 source_suffix = {
     ".rst": "restructuredtext",
@@ -32,6 +33,7 @@ source_suffix = {
 # -- MyST (Markdown) ---------------------------------------------------
 myst_enable_extensions = [
     "colon_fence",
+    "dollarmath",
     "fieldlist",
 ]
 myst_heading_anchors = 3
@@ -40,7 +42,7 @@ myst_heading_anchors = 3
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 autodoc_default_options = {
-    "imported-members": False,
+    "exclude-members": "minimize, minimize_scalar, spsolve, sparse, cos, sin",
 }
 napoleon_google_docstring = False
 napoleon_numpy_docstring = True
