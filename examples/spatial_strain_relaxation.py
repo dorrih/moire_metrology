@@ -53,11 +53,11 @@ References
 
 Data file
 ---------
-The example looks for ``docs_internal/Bilayer--183_1_pointsList.mat``
-relative to the repo root. This file is gitignored (maintainer-only).
-If absent, the example exits with a message; the API surface is the
-same regardless of the data source — drop in any ``.mat`` produced by
-the maintainer's polyline GUI, or build a :class:`FringeSet` directly.
+The example loads traced moire fringe polylines from
+``examples/data/mose2_wse2_polylines.csv`` (bundled with the repo).
+The CSV has four columns: ``x, y, index, family``. You can also pass
+a MATLAB ``.mat`` file via ``--data-file``; the loader dispatches on
+the file extension.
 """
 
 from __future__ import annotations
@@ -90,8 +90,7 @@ import _cli
 
 # --- Default parameters (overridable via CLI) ----------------------------
 
-DEFAULT_DATA_PATH = (Path(__file__).parents[1]
-                     / "docs_internal" / "Bilayer--183_1_pointsList.mat")
+DEFAULT_DATA_PATH = (Path(__file__).parent / "data" / "mose2_wse2_polylines.csv")
 DEFAULT_INTERFACE = "mose2-wse2-h"
 DEFAULT_POLY_DEGREE = 11
 DEFAULT_PHI0_DEG = -65.6
@@ -383,12 +382,15 @@ def main() -> None:
     if not data_path.exists():
         print(
             f"Data file {data_path} not found.\n"
-            "This example requires a .mat polyline data file. "
+            "This example requires a polyline data file (CSV or .mat). "
             "See the module docstring for the expected format."
         )
         return
     print(f"Loading polylines from {data_path}")
-    fringes = FringeSet.from_matlab(data_path)
+    if data_path.suffix == ".mat":
+        fringes = FringeSet.from_matlab(data_path)
+    else:
+        fringes = FringeSet.from_csv(data_path)
     print(f"  family 1 (I): {len(fringes.i_fringes)} polylines")
     print(f"  family 2 (J): {len(fringes.j_fringes)} polylines")
 

@@ -47,6 +47,48 @@ Any explicit CLI flag overrides the preset value:
 python bilayer_relaxation.py --preset tmd --theta-twist 3.0
 ```
 
+### Sample output: twisted bilayer graphene (0.2 deg)
+
+```{figure} images/graphene_graphene_stacking.png
+:width: 80%
+
+Stacking energy density showing the hallmark AB/BA triangular domain
+pattern with narrow domain walls (soliton network).
+```
+
+```{figure} images/graphene_graphene_elastic.png
+:width: 80%
+
+Elastic energy density concentrated along the domain walls, forming
+the strain-driven soliton network.
+```
+
+```{figure} images/graphene_graphene_twist.png
+:width: 80%
+
+Local twist angle map showing enhanced twist at AA vortex sites and
+reduced twist in the relaxed AB/BA domains.
+```
+
+### Sample output: graphene/hBN (0 deg, lattice-mismatch moire)
+
+```{figure} images/graphene_hbn_stacking.png
+:width: 80%
+
+Graphene on hBN at zero twist. The 1.6% lattice mismatch drives a
+moire pattern with a single energy minimum per cell.
+```
+
+### Sample output: MoSe2/WSe2 H-stacked (1.5 deg)
+
+```{figure} images/mose2_wse2_h_stacked_stacking.png
+:width: 80%
+
+H-stacked MoSe2/WSe2 stacking energy. The broken inversion symmetry
+produces three distinct stacking minima (XX', MX', MM') per moire
+cell, unlike the two-fold AB/BA pattern of graphene.
+```
+
 ### Custom interface from TOML
 
 ```bash
@@ -105,6 +147,35 @@ Additional flags: `--n-top`, `--n-bottom`, `--min-mesh-points`,
 If you pass a heterointerface or a TOML-loaded interface without a
 stacking function, the script exits with a clear error message.
 
+### Sample output: 60/60 graphene at 0.035 deg
+
+```{figure} images/graphene_graphene_multilayer_profile.png
+:width: 80%
+
+Peak elastic energy density vs layer index. Relaxation decays
+exponentially from the twisted interface into both flakes.
+```
+
+```{figure} images/graphene_graphene_multilayer_maps.png
+:width: 100%
+
+Per-layer elastic energy density maps showing the soliton network
+fading as it penetrates deeper into the stack.
+```
+
+```{figure} images/graphene_graphene_multilayer_linecuts.png
+:width: 80%
+
+Domain-wall line cuts showing broadening of the soliton network
+with increasing depth from the twisted interface.
+```
+
+```{figure} images/graphene_graphene_multilayer_fwhm.png
+:width: 80%
+
+Domain-wall FWHM vs layer index, quantifying the broadening.
+```
+
 ## strain_extraction_and_pinning.py
 
 Two-part example:
@@ -127,16 +198,38 @@ python strain_extraction_and_pinning.py --skip-part-a --interface graphene-hbn -
 python strain_extraction_and_pinning.py --heterostrain 0.02
 ```
 
+### Sample output: Part A strain extraction sweep
+
+```{figure} images/strain_extraction_sweep.png
+:width: 100%
+
+Recovered twist angle (left) and strain components (right) as a
+function of the inter-vector angle, reproducing Fig. 3c-d of
+Halbertal et al., ACS Nano 16, 1471 (2022).
+```
+
 ## spatial_strain_relaxation.py
 
-End-to-end pipeline: loads polyline data from a `.mat` file, fits
+End-to-end pipeline: loads polyline data from a CSV file, fits
 registry polynomials, extracts the spatially-varying strain field,
 and runs a constrained relaxation.  Reproduces Fig. 1c-e of
 Halbertal et al. ACS Nano 16, 1471 (2022).
 
-Requires a maintainer-only `.mat` data file (gitignored).  All
-pipeline parameters are configurable:
+The bundled polyline data is at `examples/data/mose2_wse2_polylines.csv`.
+All pipeline parameters are configurable:
 
 ```bash
 python spatial_strain_relaxation.py --poly-degree 11 --phi0 -65.6 --n-cells 55
+```
+
+### Sample output
+
+```{figure} images/mose2_wse2_h_stacked_spatial_relaxation.png
+:width: 100%
+
+Four-panel headline figure. **Top row + bottom-left** reproduce the
+spatially-varying strain extraction from traced moire fringes (twist
+angle, compression strain, shear strain — cf. paper Fig. 1c-e).
+**Bottom-right** shows the constrained relaxation result: the
+equilibrium stacking-energy density aligned with the traced polylines.
 ```
