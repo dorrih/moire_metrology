@@ -13,5 +13,6 @@ build/
 poetry.lock
 .claude/
 .venv/
+docs/_build/
 docs_internal/
 examples/output/

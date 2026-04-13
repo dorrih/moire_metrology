@@ -156,7 +156,7 @@ def get_strain_minimize_compression(
     phi2_deg: float,
     phi0_guess: float = 0.0,
 ) -> StrainResult:
-    """Extract strain with phi0 chosen to minimize compression strain |eps_c|.
+    """Extract strain with phi0 chosen to minimize compression strain \|eps_c\|.
 
     This solves analytically for phi0 such that eps_c = 0 when possible,
     or finds the closest achievable phi0 when eps_c = 0 is infeasible.

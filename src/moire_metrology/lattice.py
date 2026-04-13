@@ -116,7 +116,7 @@ class MoireGeometry:
 
     @property
     def wavelength(self) -> float:
-        """Moire wavelength in nm (geometric mean of |V1| and |V2|)."""
+        """Moire wavelength in nm (geometric mean of \|V1\| and \|V2\|)."""
         V1, V2 = self.moire_vectors
         return np.sqrt(np.linalg.norm(V1) * np.linalg.norm(V2))
 
