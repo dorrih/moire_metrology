@@ -137,7 +137,9 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                   display: bool,
                   linear_solver: str = "direct",
                   linear_solver_tol: float = 1e-6,
-                  linear_solver_maxiter: int = 500) -> dict:
+                  linear_solver_maxiter: int = 500,
+                  mean_B: "sparse.csr_matrix | None" = None,
+                  mean_t: "np.ndarray | None" = None) -> dict:
     """Damped Newton solver with sparse direct Hessian factorization.
 
     Uses Levenberg-Marquardt damping to handle indefinite Hessians:
@@ -200,6 +202,22 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     mu_max = 1e10
     I_sp = speye(n_sol, format="csr")
 
+    # Mean-displacement equality constraints (optional). Enforced
+    # exactly by Lagrange multipliers: each Newton step solves the KKT
+    # system  [[H + mu I, B^T], [B, 0]] [dU; λ] = [-grad; -(B U - t)].
+    has_mean_constraints = mean_B is not None
+    if has_mean_constraints:
+        if linear_solver != "direct":
+            raise NotImplementedError(
+                "mean_constraints currently require linear_solver='direct'"
+            )
+        if mean_B.shape[1] != n_sol:
+            raise ValueError(
+                f"mean_B has {mean_B.shape[1]} cols, expected {n_sol}"
+            )
+        n_mc = mean_B.shape[0]
+        zero_block = sparse.csr_matrix((n_mc, n_mc))
+
     interrupted = False
     exit_reason: str | None = None
     try:
@@ -232,7 +250,17 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
             #   diagonal (Jacobi) preconditioner is cheap and gives
             #   decent clustering of the spectrum for these systems.
             try:
-                if linear_solver == "direct":
+                if has_mean_constraints:
+                    # KKT saddle-point system with the damped Hessian.
+                    c_resid = mean_B @ U - mean_t
+                    KKT = sparse.bmat(
+                        [[H_damped, mean_B.T], [mean_B, zero_block]],
+                        format="csr",
+                    )
+                    rhs = np.concatenate([-grad, -c_resid])
+                    sol = spsolve(KKT, rhs)
+                    dU = sol[:n_sol]
+                elif linear_solver == "direct":
                     dU = spsolve(H_damped, -grad)
                 else:
                     diag = H_damped.diagonal()
@@ -667,6 +695,7 @@ class RelaxationSolver:
         fix_bottom: bool = False,
         pin_mean: bool = False,
         mesh: MoireMesh | None = None,
+        mean_constraints: "list | None" = None,
         **legacy_kwargs,
     ) -> RelaxationResult:
         """Solve the relaxation problem.
@@ -855,14 +884,27 @@ class RelaxationSolver:
         # Run optimizer
         if cfg.method in ("newton", "pseudo_dynamics"):
             if cfg.method == "newton":
+                # Assemble mean-constraint matrix in free-DOF space (if any).
+                mean_B = mean_t = None
+                if mean_constraints:
+                    from .mean_constraint import stack_mean_constraints
+                    mean_B, mean_t = stack_mean_constraints(
+                        mean_constraints, conv, constraints,
+                    )
                 res = _newton_solve(
                     energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
                     cfg.etol, cfg.etol_window, cfg.display,
                     linear_solver=cfg.linear_solver,
                     linear_solver_tol=cfg.linear_solver_tol,
                     linear_solver_maxiter=cfg.linear_solver_maxiter,
+                    mean_B=mean_B, mean_t=mean_t,
                 )
             else:
+                if mean_constraints:
+                    raise NotImplementedError(
+                        "mean_constraints are currently only supported "
+                        "with method='newton' (linear_solver='direct')"
+                    )
                 res = _pseudo_dynamics_solve(
                     energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
                     beta=cfg.beta, dt0=cfg.dt0, display=cfg.display,
@@ -881,6 +923,11 @@ class RelaxationSolver:
             result.message = res["message"]
             result.success = res["success"]
         else:
+            if mean_constraints:
+                raise NotImplementedError(
+                    "mean_constraints are currently only supported "
+                    "with method='newton' (linear_solver='direct')"
+                )
             # Fallback to scipy.optimize.minimize (L-BFGS-B, etc.)
             # Capture initial gradient norm for post-hoc relative check.
             _, grad0 = energy_func(U0)
