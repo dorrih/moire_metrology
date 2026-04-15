@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import sparse
 
+from ._elasticity_nl import _GLElastic
 from .discretization import ConversionMatrices, Discretization, PinnedConstraints
 from .gsfe import GSFESurface
 from .lattice import MoireGeometry
@@ -121,6 +122,7 @@ class RelaxationEnergy:
         I2_vect: np.ndarray | None = None,
         J2_vect: np.ndarray | None = None,
         constraints: PinnedConstraints | None = None,
+        elastic_strain: str = "cauchy",
     ):
         self.disc = disc
         self.conv = conv
@@ -209,8 +211,26 @@ class RelaxationEnergy:
                     use_moire_phase=False,
                 ))
 
-        # Precompute the elastic Hessian (constant)
-        self._H_elastic = self._build_elastic_hessian()
+        if elastic_strain not in ("cauchy", "green_lagrange"):
+            raise ValueError(
+                f"elastic_strain must be 'cauchy' or 'green_lagrange', "
+                f"got {elastic_strain!r}"
+            )
+        self.elastic_strain = elastic_strain
+
+        if elastic_strain == "cauchy":
+            # Precompute the constant linear-elastic Hessian.
+            self._H_elastic = self._build_elastic_hessian()
+            self._gl: _GLElastic | None = None
+        else:
+            # Geometrically nonlinear: Hessian is state-dependent, assembled
+            # per iteration. No constant precompute.
+            self._H_elastic = None
+            self._gl = _GLElastic(
+                disc=disc, conv=conv, geometry=geometry,
+                K1=K1, G1=G1, K2=K2, G2=G2,
+                nlayer1=nlayer1, nlayer2=nlayer2,
+            )
 
         self.eval_count = 0
 
@@ -302,10 +322,15 @@ class RelaxationEnergy:
         self.eval_count += 1
         U_full = self._to_full(U)
 
-        # Elastic energy (quadratic: E = 0.5 * U^T H U, grad = H U)
-        HU = self._H_elastic @ U_full
-        E_total = 0.5 * U_full.dot(HU)
-        grad = HU.copy()
+        if self.elastic_strain == "cauchy":
+            # Elastic energy (quadratic: E = 0.5 * U^T H U, grad = H U)
+            HU = self._H_elastic @ U_full
+            E_total = 0.5 * U_full.dot(HU)
+            grad = HU.copy()
+        else:
+            # Green–Lagrange: accumulate into grad in place.
+            grad = np.zeros_like(U_full)
+            E_total = self._gl.energy_grad(U_full, grad)
 
         # GSFE energy for all pairs
         Mu = self._Mu1
@@ -344,7 +369,11 @@ class RelaxationEnergy:
         else:
             p_full = p
 
-        result = self._H_elastic @ p_full
+        if self.elastic_strain == "cauchy":
+            result = self._H_elastic @ p_full
+        else:
+            result = np.zeros_like(p_full)
+            self._gl.hessp(U_full, p_full, result)
 
         for pair in self._gsfe_pairs:
             v, w = self._pair_phases(pair, U_full)
@@ -468,7 +497,9 @@ class RelaxationEnergy:
         data = np.concatenate(all_data)
 
         H_gsfe = sparse.csr_matrix((data, (rows, cols)), shape=(n_sol, n_sol))
-        return self._H_elastic + H_gsfe
+        if self.elastic_strain == "cauchy":
+            return self._H_elastic + H_gsfe
+        return self._gl.hessian_sparse(U_full) + H_gsfe
 
     def energy_maps(self, U: np.ndarray) -> dict:
         """Compute spatially resolved energy density maps."""

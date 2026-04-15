@@ -128,6 +128,7 @@ class SolverConfig:
     linear_solver: str = "direct"
     linear_solver_tol: float = 1e-6
     linear_solver_maxiter: int = 200
+    elastic_strain: str = "cauchy"
 
 
 def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
@@ -829,6 +830,7 @@ class RelaxationSolver:
             I1_vect=I1_vect, J1_vect=J1_vect,
             I2_vect=I2_vect, J2_vect=J2_vect,
             constraints=constraints,
+            elastic_strain=cfg.elastic_strain,
         )
 
         if cfg.display:
