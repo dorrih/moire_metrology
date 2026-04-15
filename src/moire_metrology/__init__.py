@@ -31,6 +31,7 @@ from .materials import (
     WSE2,
     Material,
 )
+from .mean_constraint import MeanDisplacementConstraint
 from .mesh import MoireMesh, generate_finite_mesh
 from .pinning import PinningMap, InteractivePinner
 from .solver import RelaxationSolver, SolverConfig
@@ -59,6 +60,7 @@ __all__ = [
     "BUNDLED_INTERFACES",
     "MoireMesh",
     "generate_finite_mesh",
+    "MeanDisplacementConstraint",
     "PinningMap",
     "InteractivePinner",
     "RelaxationSolver",
