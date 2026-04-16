@@ -179,8 +179,85 @@ class MeanDisplacementConstraint:
         return B, t
 
 
+@dataclass(frozen=True)
+class RotationConstraint:
+    r"""Linear equality constraint preventing net in-plane rotation.
+
+    Enforces
+
+        Σ_{i ∈ S} (x̃_i · u_{y,i} − ỹ_i · u_{x,i}) = 0
+
+    where x̃, ỹ are vertex positions relative to the centroid of S.
+    This kills the rigid-rotation null mode without constraining
+    local deformations, complementing ``MeanDisplacementConstraint``
+    which kills the translation null modes.
+
+    Pass in ``mean_constraints=[mdc, rot]`` alongside the MDC.
+    """
+
+    layer_idx: int
+    vertex_indices: np.ndarray
+    mesh_points: np.ndarray  # (2, Nv_total) — full mesh points array
+
+    @classmethod
+    def from_layer(
+        cls,
+        conv: ConversionMatrices,
+        mesh_points: np.ndarray,
+        layer_idx: int = 0,
+    ) -> "RotationConstraint":
+        """Constrain net rotation over all vertices of a layer."""
+        return cls(
+            layer_idx=layer_idx,
+            vertex_indices=np.arange(conv.n_vertices, dtype=np.int64),
+            mesh_points=mesh_points,
+        )
+
+    @property
+    def n_rows(self) -> int:
+        return 1
+
+    def build_matrix(
+        self,
+        conv: ConversionMatrices,
+    ) -> tuple[sparse.csr_matrix, np.ndarray]:
+        """Build the 1×n_sol constraint row and target (=0)."""
+        Nv = conv.n_vertices
+        nlayers_total = conv.nlayer1 + conv.nlayer2
+        n_sol = conv.n_sol
+        vi = self.vertex_indices
+        S = len(vi)
+
+        # Centroid-relative coordinates
+        x = self.mesh_points[0, vi]
+        y = self.mesh_points[1, vi]
+        xc = x - x.mean()
+        yc = y - y.mean()
+
+        # DOF offsets for this layer
+        ox = self.layer_idx * Nv        # ux start
+        oy = nlayers_total * Nv + self.layer_idx * Nv  # uy start
+
+        # Row 0: Σ (x̃_i · u_yi − ỹ_i · u_xi) = 0
+        # Normalize by Σ(x̃² + ỹ²) so the constraint has O(1) scale
+        norm = np.sum(xc**2 + yc**2)
+        if norm < 1e-30:
+            raise ValueError("Vertices are co-located; cannot define rotation")
+
+        rows = np.zeros(2 * S, dtype=np.int64)  # all row 0
+        cols = np.concatenate([ox + vi, oy + vi])
+        data = np.concatenate([-yc / norm, xc / norm])
+
+        B = sparse.csr_matrix(
+            (data, (rows, cols)),
+            shape=(1, n_sol),
+        )
+        t = np.array([0.0])
+        return B, t
+
+
 def stack_mean_constraints(
-    mean_constraints: list[MeanDisplacementConstraint],
+    mean_constraints: list[MeanDisplacementConstraint | RotationConstraint],
     conv: ConversionMatrices,
     pinned_constraints: PinnedConstraints | None = None,
 ) -> tuple[sparse.csr_matrix, np.ndarray]:
