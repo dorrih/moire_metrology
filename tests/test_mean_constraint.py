@@ -1,4 +1,4 @@
-"""Tests for MeanDisplacementConstraint (Lagrange-multiplier enforcement)."""
+"""Tests for MeanDisplacementConstraint and RotationConstraint."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import pytest
 from moire_metrology import (
     GRAPHENE_GRAPHENE,
     MeanDisplacementConstraint,
+    RotationConstraint,
     RelaxationSolver,
     SolverConfig,
     generate_finite_mesh,
@@ -134,3 +135,94 @@ def test_mean_constraint_differs_from_unconstrained_with_nonzero_target():
     assert abs(uy1.mean()) < 1e-8
     # Energies should be different (constraint is active).
     assert abs(r0.total_energy - r1.total_energy) > 1e-4
+
+
+# --- RotationConstraint tests ---
+
+
+def test_rotation_constraint_build_matrix():
+    """Matrix has the right shape and target = 0."""
+    mesh, _, _, conv = _build_finite()
+    rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
+    B, t = rot.build_matrix(conv)
+    assert B.shape == (1, conv.n_sol)
+    assert t.tolist() == [0.0]
+    # Nonzero entries should touch both x- and y-DOFs of layer 0.
+    Nv = conv.n_vertices
+    nnz_cols = set(B.indices.tolist())
+    x_dofs = set(range(0, Nv))
+    y_dofs = set(range(2 * Nv, 3 * Nv))
+    assert nnz_cols <= (x_dofs | y_dofs)
+    assert len(nnz_cols & x_dofs) > 0
+    assert len(nnz_cols & y_dofs) > 0
+
+
+def test_rotation_constraint_suppresses_rotation():
+    """With MDC + RotationConstraint, the net rotation of the top flake
+    should be much smaller than with MDC alone."""
+    mesh, _, _, conv = _build_finite(theta=1.5, n_cells=2, pixel_size=1.2)
+    Nv = conv.n_vertices
+    pinned = {Nv + v for v in range(Nv)} | {3 * Nv + v for v in range(Nv)}
+    pi = np.array(sorted(pinned), dtype=int)
+    fi = np.array(sorted(set(range(conv.n_sol)) - pinned), dtype=int)
+    pc = PinnedConstraints(fi, pi, np.zeros(len(pi)), len(fi), conv.n_sol)
+
+    mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
+    rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
+
+    cfg = SolverConfig(method="newton", display=False, elastic_strain="cauchy",
+                       max_iter=200, gtol=1e-4, rtol=1e-6,
+                       etol=1e-9, etol_window=10)
+    solver = RelaxationSolver(cfg)
+
+    r_mdc = solver.solve(moire_interface=GRAPHENE_GRAPHENE,
+                         theta_twist=1.5, delta=0.0,
+                         mesh=mesh, constraints=pc,
+                         mean_constraints=[mdc])
+
+    r_both = solver.solve(moire_interface=GRAPHENE_GRAPHENE,
+                          theta_twist=1.5, delta=0.0,
+                          mesh=mesh, constraints=pc,
+                          mean_constraints=[mdc, rot])
+
+    def _net_rotation(U_free):
+        U_full = np.zeros(conv.n_sol)
+        U_full[pc.free_indices] = U_free
+        ux = U_full[:Nv]
+        uy = U_full[2 * Nv:3 * Nv]
+        x = mesh.points[0] - mesh.points[0].mean()
+        y = mesh.points[1] - mesh.points[1].mean()
+        A = np.column_stack([np.ones(Nv), x, y])
+        sx = np.linalg.lstsq(A, ux, rcond=None)[0]
+        sy = np.linalg.lstsq(A, uy, rcond=None)[0]
+        return 0.5 * (sy[1] - sx[2])  # rotation in radians
+
+    rot_mdc = abs(_net_rotation(r_mdc.optimizer_result.x))
+    rot_both = abs(_net_rotation(r_both.optimizer_result.x))
+
+    # Rotation with the constraint should be at least 2× smaller.
+    assert rot_both < rot_mdc * 0.5, (
+        f"RotationConstraint did not suppress rotation: "
+        f"|rot_mdc|={rot_mdc:.2e}, |rot_both|={rot_both:.2e}"
+    )
+    # Both solutions must be nontrivially relaxed.
+    assert np.isfinite(r_both.total_energy)
+    assert r_both.total_energy < r_both.unrelaxed_energy
+
+
+def test_rotation_constraint_stacks_with_mdc():
+    """RotationConstraint can be stacked with MDC via stack_mean_constraints."""
+    mesh, _, _, conv = _build_finite()
+    Nv = conv.n_vertices
+    pinned = {Nv + v for v in range(Nv)} | {3 * Nv + v for v in range(Nv)}
+    pi = np.array(sorted(pinned), dtype=int)
+    fi = np.array(sorted(set(range(conv.n_sol)) - pinned), dtype=int)
+    pc = PinnedConstraints(fi, pi, np.zeros(len(pi)), len(fi), conv.n_sol)
+
+    mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
+    rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
+    B, t = stack_mean_constraints([mdc, rot], conv, pinned_constraints=pc)
+    # 2 rows from MDC + 1 from rotation = 3 total
+    assert B.shape[0] == 3
+    assert len(t) == 3
+    assert t[2] == 0.0  # rotation target
