@@ -32,7 +32,7 @@ from .materials import (
     Material,
 )
 from .mean_constraint import MeanDisplacementConstraint, RotationConstraint
-from .mesh import MoireMesh, generate_finite_mesh
+from .mesh import MoireMesh, generate_finite_mesh, generate_custom_mesh
 from .pinning import PinningMap, InteractivePinner
 from .solver import RelaxationSolver, SolverConfig
 
@@ -60,6 +60,7 @@ __all__ = [
     "BUNDLED_INTERFACES",
     "MoireMesh",
     "generate_finite_mesh",
+    "generate_custom_mesh",
     "MeanDisplacementConstraint",
     "RotationConstraint",
     "PinningMap",
