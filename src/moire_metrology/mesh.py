@@ -266,3 +266,195 @@ def _structured_triangulation_open(ns: int, nt: int) -> np.ndarray:
             triangles.append([v10, v11, v01])
 
     return np.array(triangles, dtype=np.int64)
+
+
+def _circle_points(
+    cx: float, cy: float, r: float, n: int,
+) -> list[tuple[float, float]]:
+    """Return *n* evenly spaced points on a circle."""
+    angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    return [(cx + r * np.cos(a), cy + r * np.sin(a)) for a in angles]
+
+
+def _connect_loop(start: int, end: int) -> list[tuple[int, int]]:
+    """Facet list connecting indices start..end in a closed loop."""
+    return [(i, i + 1) for i in range(start, end)] + [(end, start)]
+
+
+def generate_custom_mesh(
+    geometry: MoireGeometry,
+    *,
+    outer_boundary: str | list[tuple[float, float]] = "disk",
+    outer_radius: float = 70.0,
+    center: tuple[float, float] = (0.0, 0.0),
+    holes: list[dict] | None = None,
+    max_area: float = 2.0,
+    min_angle: float = 25.0,
+    boundary_density: int | None = None,
+) -> MoireMesh:
+    """Generate a mesh on an arbitrary 2D domain using meshpy.
+
+    Produces an unstructured triangulation with smooth boundaries,
+    suitable for constrained relaxation on non-rectangular domains
+    and domains with interior holes.
+
+    Parameters
+    ----------
+    geometry : MoireGeometry
+        Moire geometry (provides V1, V2 for metadata).
+    outer_boundary : ``"disk"`` or list of (x, y) tuples
+        Outer domain boundary. ``"disk"`` creates a circle of
+        radius ``outer_radius`` centred at ``center``.
+    outer_radius : float
+        Radius in nm (used only when ``outer_boundary="disk"``).
+    center : tuple of float
+        Centre of the disk in nm (default origin).
+    holes : list of dict, optional
+        Each dict describes a hole:
+        ``{"center": (cx, cy), "radius": r}`` for a circular hole,
+        or ``{"points": [(x1,y1), ...]}`` for an arbitrary polygon.
+    max_area : float
+        Maximum triangle area in nm² (controls mesh density).
+    min_angle : float
+        Minimum triangle angle in degrees (controls quality).
+    boundary_density : int or None
+        Number of boundary points per circle. If None, chosen
+        automatically from ``outer_radius / sqrt(max_area)``.
+
+    Returns
+    -------
+    MoireMesh
+        Non-periodic mesh with ``is_periodic=False``.
+
+    Examples
+    --------
+    Disk with a central hole::
+
+        mesh = generate_custom_mesh(
+            geom,
+            outer_boundary="disk",
+            outer_radius=70.0,
+            holes=[{"center": (0, 0), "radius": 10.0}],
+            max_area=1.5,
+        )
+
+    Hourglass (two pads connected by a neck)::
+
+        # Define as a polygon
+        mesh = generate_custom_mesh(
+            geom,
+            outer_boundary=hourglass_points,
+            max_area=1.0,
+        )
+    """
+    try:
+        import meshpy.triangle as tri_mod
+    except ImportError as e:
+        raise ImportError(
+            "meshpy is required for generate_custom_mesh. "
+            "Install with: pip install meshpy"
+        ) from e
+
+    # --- Build outer boundary ---
+    if outer_boundary == "disk":
+        if boundary_density is None:
+            boundary_density = max(32, int(2 * np.pi * outer_radius
+                                           / np.sqrt(max_area)))
+        cx, cy = center
+        outer_pts = _circle_points(cx, cy, outer_radius, boundary_density)
+    elif isinstance(outer_boundary, list):
+        outer_pts = list(outer_boundary)
+        if boundary_density is not None:
+            raise ValueError(
+                "boundary_density is only used with outer_boundary='disk'"
+            )
+    else:
+        raise ValueError(
+            f"outer_boundary must be 'disk' or a list of points, "
+            f"got {outer_boundary!r}"
+        )
+
+    n_outer = len(outer_pts)
+    all_points = list(outer_pts)
+    all_facets = _connect_loop(0, n_outer - 1)
+    hole_markers: list[tuple[float, float]] = []
+
+    # --- Build hole boundaries ---
+    if holes is not None:
+        for h in holes:
+            start_idx = len(all_points)
+            if "radius" in h:
+                hcx, hcy = h["center"]
+                hr = h["radius"]
+                n_hole = max(16, int(2 * np.pi * hr / np.sqrt(max_area)))
+                hole_pts = _circle_points(hcx, hcy, hr, n_hole)
+                hole_markers.append((hcx, hcy))
+            elif "points" in h:
+                hole_pts = list(h["points"])
+                hx = sum(p[0] for p in hole_pts) / len(hole_pts)
+                hy = sum(p[1] for p in hole_pts) / len(hole_pts)
+                hole_markers.append((hx, hy))
+            else:
+                raise ValueError(
+                    "Each hole must have 'radius'+'center' or 'points'"
+                )
+            end_idx = start_idx + len(hole_pts) - 1
+            all_points.extend(hole_pts)
+            all_facets.extend(_connect_loop(start_idx, end_idx))
+
+    # --- Triangulate ---
+    info = tri_mod.MeshInfo()
+    info.set_points(all_points)
+    info.set_facets(all_facets)
+    if hole_markers:
+        info.set_holes(hole_markers)
+
+    built = tri_mod.build(
+        info,
+        max_volume=max_area,
+        min_angle=min_angle,
+    )
+
+    pts_raw = np.array(built.points)     # (Nv, 2)
+    tris_raw = np.array(built.elements)  # (Nt, 3)
+
+    points = pts_raw.T  # (2, Nv) — MoireMesh convention
+
+    # Identify boundary vertices (on outer and hole boundaries)
+    outer_set = set(range(n_outer))
+    hole_sets: list[set[int]] = []
+    idx = n_outer
+    if holes is not None:
+        for h in holes:
+            if "radius" in h:
+                n_h = max(16, int(2 * np.pi * h["radius"]
+                                  / np.sqrt(max_area)))
+            else:
+                n_h = len(h["points"])
+            hole_sets.append(set(range(idx, idx + n_h)))
+            idx += n_h
+
+    # Compute bounding-parallelogram metadata
+    V1 = geometry.V1
+    V2 = geometry.V2
+    x_all = points[0]
+    y_all = points[1]
+    extent = max(x_all.max() - x_all.min(), y_all.max() - y_all.min())
+    n_scale = max(1, int(np.round(extent / geometry.wavelength)))
+
+    return MoireMesh(
+        points=points,
+        triangles=tris_raw.astype(np.int64),
+        V1=n_scale * V1,
+        V2=n_scale * V2,
+        ns=0,
+        nt=0,
+        n_scale=n_scale,
+        is_periodic=False,
+        _boundary_info={
+            "outer_vertices": np.array(sorted(outer_set), dtype=np.int64),
+            "hole_vertices": [
+                np.array(sorted(s), dtype=np.int64) for s in hole_sets
+            ],
+        },
+    )
