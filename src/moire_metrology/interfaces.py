@@ -43,6 +43,7 @@ import numpy as np
 
 from .materials import (
     GRAPHENE,
+    GRAPHENE_BILAYER,
     HBN_AA,
     HBN_AAP,
     MOSE2,
@@ -391,6 +392,48 @@ MOSE2_WSE2_H_INTERFACE = Interface(
               "12, 242 (2021), SI Table 1, MoSe2/WSe2 column.",
 )
 
+# --- Graphene-bilayer / graphene-bilayer twist (TDBG) ---------------------
+#
+# The GSFE at the twist interface between two Bernal graphene bilayers
+# describes the ABCB / ABCA stacking landscape that controls the moire
+# relaxation pattern of TDBG. The coefficients reported in Halbertal
+# et al. Nat. Commun. 12, 242 (2021), SI Table 1, are computed in four
+# flavours of DFT (DFT-D2, LDA, GGA-TS, optB88-vdW). They differ
+# quantitatively by ~30% on c0..c3 and ~10x on the inversion-asymmetric
+# c4, c5 terms; the authors found that all four are consistent with
+# the experimental domain-wall histograms within error bars, and used
+# DFT-D2 as the reference choice in the bulk of their analysis. We
+# bundle DFT-D2 here for the same reason and document the alternative
+# values below so users can build Interface instances for the other
+# DFT approaches if they want to compare.
+#
+# DFT-D2 (bundled):
+#     (10.4395, 6.0761, -0.4995, -0.1972, 0.0453, 0.0019)
+#
+# Alternative DFT flavours from the same SI Table 1:
+#     LDA:        (7.6484, 4.3773, -0.4088, -0.1384, 0.02196, 0.0025)
+#     GGA-TS:     (9.7361, 5.8610, -0.3330, -0.0771, 0.0141,  0.0093)
+#     optB88-vdW: (7.7155, 4.6825, -0.2712, -0.0989, 0.0041,  0.0060)
+#
+# Non-zero c4, c5 reflect the broken inversion symmetry of the TDBG
+# stacking landscape (ABCB vs ABCA are not related by inversion),
+# unlike TBG where c4 = c5 = 0 by AB <-> BA symmetry.
+_graphene_bilayer_gsfe_dft_d2 = (
+    10.4395, 6.0761, -0.4995, -0.1972, 0.0453, 0.0019,
+)
+
+GRAPHENE_BILAYER_GRAPHENE_BILAYER = Interface(
+    name="Graphene bilayer / graphene bilayer (TDBG, DFT-D2)",
+    bottom=GRAPHENE_BILAYER,
+    top=GRAPHENE_BILAYER,
+    gsfe_coeffs=_graphene_bilayer_gsfe_dft_d2,
+    stacking_func=None,
+    reference="Halbertal et al., Nat. Commun. 12, 242 (2021), "
+              "SI Table 1, TDBG (DFT-D2) column. Alternative DFT "
+              "flavours (LDA, GGA-TS, optB88-vdW) are documented in "
+              "the source comment for users who want to compare.",
+)
+
 
 # ---------------------------------------------------------------------------
 # Bundled interface registry — convenience tuple of every interface above
@@ -402,4 +445,5 @@ BUNDLED_INTERFACES: tuple[Interface, ...] = (
     HBN_AAP_HOMOBILAYER,
     GRAPHENE_HBN_INTERFACE,
     MOSE2_WSE2_H_INTERFACE,
+    GRAPHENE_BILAYER_GRAPHENE_BILAYER,
 )

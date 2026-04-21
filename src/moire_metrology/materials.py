@@ -44,6 +44,11 @@ Sources for the bundled values
 - ``MOSE2``, ``WSE2``: K, G from Halbertal et al. Nat. Commun. 12,
   242 (2021), SI Table 1, and independently confirmed in the
   Shabani, Halbertal et al. Nat. Phys. 17, 720 (2021) Methods section.
+- ``GRAPHENE_BILAYER``: a Bernal-stacked graphene bilayer treated as
+  a single effective 2D elastic continuum, with K and G taken as
+  exactly twice the single-layer graphene values per the convention
+  of Halbertal et al. Nat. Commun. 12, 242 (2021), SI Table 1 (the
+  "TDBG" rows). Lattice constant is inherited from graphene.
 """
 
 from __future__ import annotations
@@ -158,6 +163,57 @@ class Material:
             lattice_constant=lattice_constant,
             bulk_modulus=bulk_modulus_n_per_m * factor,
             shear_modulus=shear_modulus_n_per_m * factor,
+        )
+
+    @classmethod
+    def n_layer_stack(
+        cls,
+        base: "Material",
+        n: int = 1,
+        name: str | None = None,
+    ) -> "Material":
+        """Return a Material for ``n`` coherently-strained copies of ``base``.
+
+        The returned Material has the same lattice constant as ``base``
+        and elastic moduli scaled by ``n`` (each additional layer adds
+        linearly to the effective stiffness under the assumption of
+        identical in-plane strain). It is otherwise a first-class
+        Material that can be used anywhere a single-layer one can.
+
+        This is the modelling convention used in the literature for
+        twisted double-bilayer graphene (n=2) and twisted double-
+        trilayer graphene (n=3): see e.g. Halbertal et al. Nat. Commun.
+        12, 242 (2021), SI Table 1, which states ``K, G were simply
+        taken as twice that of TBG`` for the TDBG row, i.e. n=2.
+
+        Parameters
+        ----------
+        base : Material
+            The per-layer material to stack.
+        n : int, default 1
+            Number of coherent layers in the stack. ``n=1`` reproduces
+            ``base`` (with a fresh name if one is provided). Must be
+            at least 1.
+        name : str, optional
+            Human-readable name for the returned Material. Defaults to
+            ``f"{base.name} (n={n})"``.
+
+        Examples
+        --------
+        >>> from moire_metrology import GRAPHENE
+        >>> bilayer = Material.n_layer_stack(GRAPHENE, n=2)
+        >>> round(bilayer.bulk_modulus / GRAPHENE.bulk_modulus)
+        2
+        >>> bilayer.lattice_constant == GRAPHENE.lattice_constant
+        True
+        """
+        if n < 1:
+            raise ValueError(f"n must be >= 1, got {n}")
+        return cls(
+            name=name if name is not None else f"{base.name} (n={n})",
+            lattice_constant=base.lattice_constant,
+            bulk_modulus=n * base.bulk_modulus,
+            shear_modulus=n * base.shear_modulus,
         )
 
     @classmethod
@@ -293,4 +349,26 @@ WSE2 = Material(
     lattice_constant=0.3282,
     bulk_modulus=43113.0,
     shear_modulus=30770.0,
+)
+
+# --- Bernal-stacked graphene bilayer --------------------------------------
+#
+# Used as the per-"layer" material of a twisted-double-bilayer-graphene
+# (TDBG) system, where each half of the outer twist pair is itself a
+# Bernal bilayer. Constructed via :meth:`Material.n_layer_stack` with
+# n=2 so that the elastic moduli are exactly twice the single-layer
+# graphene values, matching the modelling convention of Halbertal
+# et al. Nat. Commun. 12, 242 (2021), SI Table 1 ("K, G were simply
+# taken as twice that of TBG"). Lattice constant is inherited from
+# graphene.
+#
+# This is a coarse-grained continuum approximation: it treats the two
+# constituent graphene sheets as straining in lockstep and ignores
+# intra-bilayer interlayer coupling. Resolving that coupling requires
+# an explicit 4-layer simulation via :class:`LayerStack`, which
+# remains available to users who need it. For moire-length-scale
+# relaxation work, the doubled-moduli convention is the standard
+# literature choice.
+GRAPHENE_BILAYER = Material.n_layer_stack(
+    GRAPHENE, n=2, name="Graphene bilayer (Bernal)"
 )

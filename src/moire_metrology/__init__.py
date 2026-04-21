@@ -15,6 +15,7 @@ Basic usage:
 from .gsfe import GSFESurface
 from .interfaces import (
     BUNDLED_INTERFACES,
+    GRAPHENE_BILAYER_GRAPHENE_BILAYER,
     GRAPHENE_GRAPHENE,
     GRAPHENE_HBN_INTERFACE,
     HBN_AA_HOMOBILAYER,
@@ -25,6 +26,7 @@ from .interfaces import (
 from .lattice import HexagonalLattice, MoireGeometry
 from .materials import (
     GRAPHENE,
+    GRAPHENE_BILAYER,
     HBN_AA,
     HBN_AAP,
     MOSE2,
@@ -48,11 +50,13 @@ __all__ = [
     "Material",
     "Interface",
     "GRAPHENE",
+    "GRAPHENE_BILAYER",
     "HBN_AA",
     "HBN_AAP",
     "MOSE2",
     "WSE2",
     "GRAPHENE_GRAPHENE",
+    "GRAPHENE_BILAYER_GRAPHENE_BILAYER",
     "HBN_AA_HOMOBILAYER",
     "HBN_AAP_HOMOBILAYER",
     "GRAPHENE_HBN_INTERFACE",
