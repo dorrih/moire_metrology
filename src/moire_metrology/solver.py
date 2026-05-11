@@ -171,6 +171,7 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     """
     from scipy.sparse import eye as speye
     from scipy.sparse.linalg import cg as sparse_cg
+    from scipy.sparse.linalg import LinearOperator, minres
 
     U = U0.copy()
     E, grad = energy_func(U)
@@ -202,21 +203,30 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     mu_max = 1e10
     I_sp = speye(n_sol, format="csr")
 
-    # Mean-displacement equality constraints (optional). Enforced
-    # exactly by Lagrange multipliers: each Newton step solves the KKT
-    # system  [[H + mu I, B^T], [B, 0]] [dU; λ] = [-grad; -(B U - t)].
+    # Mean-displacement equality constraints (optional).
+    # - linear_solver='direct': solve the KKT system exactly via sparse LU
+    #     [[H + mu I, B^T], [B, 0]] [dU; λ] = [-grad; -(B U - t)]
+    # - linear_solver='iterative': null-space (projection) method
+    #     dU = dU_p + dU_h where B dU_p = -(B U - t)  (constraint correction)
+    #                       and dU_h ∈ null(B)        (Newton step in null space).
+    #     Solve P (H + mu I) P dU_h = -P (grad + (H + mu I) dU_p) using MINRES
+    #     with P = I - B^T (B B^T)^{-1} B  (orthogonal projector onto null(B)).
+    #     The projected operator is symmetric semi-PD (rank-deficient by k);
+    #     MINRES handles this and stays in null(B) since the RHS does.
     has_mean_constraints = mean_B is not None
     if has_mean_constraints:
-        if linear_solver != "direct":
-            raise NotImplementedError(
-                "mean_constraints currently require linear_solver='direct'"
-            )
         if mean_B.shape[1] != n_sol:
             raise ValueError(
                 f"mean_B has {mean_B.shape[1]} cols, expected {n_sol}"
             )
         n_mc = mean_B.shape[0]
         zero_block = sparse.csr_matrix((n_mc, n_mc))
+        # Precompute B B^T (small k × k) for the projection method.
+        # k is typically 1-3 (one row per scalar constraint); dense is fine.
+        _BBT = (mean_B @ mean_B.T).toarray()
+        # Solve k × k linear systems via lu_factor once; we'll reuse below.
+        from scipy.linalg import lu_factor, lu_solve
+        _BBT_lu = lu_factor(_BBT)
 
     interrupted = False
     exit_reason: str | None = None
@@ -250,7 +260,7 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
             #   diagonal (Jacobi) preconditioner is cheap and gives
             #   decent clustering of the spectrum for these systems.
             try:
-                if has_mean_constraints:
+                if has_mean_constraints and linear_solver == "direct":
                     # KKT saddle-point system with the damped Hessian.
                     c_resid = mean_B @ U - mean_t
                     KKT = sparse.bmat(
@@ -260,6 +270,43 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                     rhs = np.concatenate([-grad, -c_resid])
                     sol = spsolve(KKT, rhs)
                     dU = sol[:n_sol]
+                elif has_mean_constraints and linear_solver == "iterative":
+                    # Null-space (projection) method.  Splits dU into a
+                    # particular solution dU_p satisfying B dU_p = -c_resid
+                    # and a homogeneous part dU_h ∈ null(B).  The
+                    # homogeneous part is solved iteratively against the
+                    # projected Hessian P H P, which is symmetric
+                    # semi-positive-definite — MINRES handles this and
+                    # stays in null(B) since the RHS does.
+                    c_resid = mean_B @ U - mean_t
+                    # dU_p = B^T (BB^T)^{-1} (-c_resid)  (min-norm correction)
+                    dU_p = -(mean_B.T @ lu_solve(_BBT_lu, c_resid))
+
+                    def _project(v):
+                        # P v = v - B^T (B B^T)^{-1} (B v)
+                        return v - (mean_B.T @ lu_solve(_BBT_lu, mean_B @ v))
+
+                    rhs_full = -(grad + H_damped @ dU_p)
+                    rhs_proj = _project(rhs_full)
+
+                    def _matvec(v):
+                        return _project(H_damped @ _project(v))
+
+                    A_op = LinearOperator(
+                        (n_sol, n_sol), matvec=_matvec, dtype=np.float64,
+                    )
+                    dU_h, info = minres(
+                        A_op, rhs_proj,
+                        rtol=linear_solver_tol,
+                        maxiter=linear_solver_maxiter,
+                    )
+                    if info != 0 and display:
+                        print(f"  [iter {nit}] MINRES (projected) did not "
+                              f"fully converge (info={info}); using best "
+                              f"iterate.")
+                    # Numerical cleanup: re-project to null(B).
+                    dU_h = _project(dU_h)
+                    dU = dU_p + dU_h
                 elif linear_solver == "direct":
                     dU = spsolve(H_damped, -grad)
                 else:
@@ -903,7 +950,7 @@ class RelaxationSolver:
                 if mean_constraints:
                     raise NotImplementedError(
                         "mean_constraints are currently only supported "
-                        "with method='newton' (linear_solver='direct')"
+                        "with method='newton'"
                     )
                 res = _pseudo_dynamics_solve(
                     energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,

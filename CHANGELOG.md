@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`mean_constraints` now work with `linear_solver="iterative"`** via
+  a null-space (projection) method. Each Newton step decomposes
+  `dU = dU_p + dU_h` where `dU_p` is the minimum-norm constraint
+  correction satisfying `B dU_p = -(B U - t)` and `dU_h ∈ null(B)` is
+  the Newton step in the constrained subspace, found by MINRES on
+  `P (H + μI) P dU_h = -P (grad + (H + μI) dU_p)` with the projector
+  `P = I − Bᵀ (B Bᵀ)⁻¹ B`. This enables `RotationConstraint` and
+  `MeanDisplacementConstraint` to be combined with the matrix-free
+  Hessian-vector solver, which is much faster and lower-memory than
+  the sparse-LU KKT path for large problems (n_sol >> 10⁴). Previously
+  `mean_constraints` raised `NotImplementedError` outside `direct`.
+
 ## [0.7.1] - 2026-04-13
 
 ### Fixed
