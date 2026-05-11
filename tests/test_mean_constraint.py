@@ -226,3 +226,90 @@ def test_rotation_constraint_stacks_with_mdc():
     assert B.shape[0] == 3
     assert len(t) == 3
     assert t[2] == 0.0  # rotation target
+
+
+def test_mean_constraint_iterative_matches_direct():
+    """linear_solver='iterative' with mean_constraints (projection
+    method) should give the same relaxed state as linear_solver='direct'
+    (KKT) to working tolerance.  Uses RotationConstraint + MDC stacked,
+    so both single- and multi-row projector paths exercise."""
+    mesh, _, _, conv = _build_finite(theta=1.5, n_cells=2, pixel_size=1.2)
+    Nv = conv.n_vertices
+    pinned = {Nv + v for v in range(Nv)} | {3 * Nv + v for v in range(Nv)}
+    pi = np.array(sorted(pinned), dtype=int)
+    fi = np.array(sorted(set(range(conv.n_sol)) - pinned), dtype=int)
+    pc = PinnedConstraints(fi, pi, np.zeros(len(pi)), len(fi), conv.n_sol)
+
+    mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
+    rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
+
+    common = dict(
+        moire_interface=GRAPHENE_GRAPHENE,
+        theta_twist=1.5, delta=0.0,
+        mesh=mesh, constraints=pc,
+        mean_constraints=[mdc, rot],
+    )
+
+    cfg_direct = SolverConfig(
+        method="newton", linear_solver="direct", display=False,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+    )
+    r_direct = RelaxationSolver(cfg_direct).solve(**common)
+
+    cfg_iter = SolverConfig(
+        method="newton", linear_solver="iterative", display=False,
+        linear_solver_tol=1e-10, linear_solver_maxiter=500,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+    )
+    r_iter = RelaxationSolver(cfg_iter).solve(**common)
+
+    # Energies should agree to relative ~1e-5 (limited by MINRES inner tol
+    # and the slow Newton tail; we set tight inner tol above).
+    rel_dE = abs(r_iter.total_energy - r_direct.total_energy) / abs(r_direct.total_energy)
+    assert rel_dE < 1e-4, (
+        f"iterative vs direct energy disagree: "
+        f"E_direct={r_direct.total_energy:.4e}, "
+        f"E_iter={r_iter.total_energy:.4e}, rel={rel_dE:.2e}"
+    )
+
+    # Both should satisfy the constraints to working precision.
+    B, t = stack_mean_constraints([mdc, rot], conv, pinned_constraints=pc)
+    c_direct = B @ r_direct.optimizer_result.x - t
+    c_iter = B @ r_iter.optimizer_result.x - t
+    assert np.linalg.norm(c_direct) < 1e-6
+    assert np.linalg.norm(c_iter) < 1e-6
+
+
+def test_mean_constraint_iterative_with_rotation_only():
+    """Iterative path with a single (k=1) constraint (rotation only) —
+    exercises the rank-1 projector edge case."""
+    mesh, _, _, conv = _build_finite(theta=1.5, n_cells=2, pixel_size=1.2)
+    Nv = conv.n_vertices
+    pinned = {Nv + v for v in range(Nv)} | {3 * Nv + v for v in range(Nv)}
+    pi = np.array(sorted(pinned), dtype=int)
+    fi = np.array(sorted(set(range(conv.n_sol)) - pinned), dtype=int)
+    pc = PinnedConstraints(fi, pi, np.zeros(len(pi)), len(fi), conv.n_sol)
+
+    rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
+
+    cfg = SolverConfig(
+        method="newton", linear_solver="iterative", display=False,
+        linear_solver_tol=1e-10, linear_solver_maxiter=500,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+    )
+    res = RelaxationSolver(cfg).solve(
+        moire_interface=GRAPHENE_GRAPHENE,
+        theta_twist=1.5, delta=0.0,
+        mesh=mesh, constraints=pc,
+        mean_constraints=[rot],
+    )
+
+    # Constraint satisfied
+    B_rot, t_rot = stack_mean_constraints([rot], conv, pinned_constraints=pc)
+    assert abs(B_rot @ res.optimizer_result.x - t_rot)[0] < 1e-6
+
+    # Relaxed
+    assert res.total_energy < res.unrelaxed_energy
