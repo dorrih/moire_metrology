@@ -45,11 +45,23 @@ class SolverConfig:
     method : str
         Optimization method.
 
-        - ``'newton'`` (default) -- Newton's method with sparse direct Hessian
-          solve. Fast convergence using precomputed elastic Hessian +
-          vertex-diagonal GSFE Hessian. Can stall on multi-layer systems at
-          low twist (Hessian becomes nearly indefinite); use
-          ``'pseudo_dynamics'`` for those cases.
+        - ``'newton'`` (default) -- Levenberg-Marquardt damped Newton with
+          a *modified* per-vertex GSFE Hessian (negative eigenvalues are
+          flipped so the assembled Hessian is positive-definite by
+          construction). Fast and well-behaved for nearly-convex problems
+          (typical at moderate-to-high twist angles), but cannot follow
+          negative-curvature directions and therefore cannot cross saddles
+          between basins. For multi-basin / low-twist problems where you
+          might land in the wrong local minimum, prefer ``'trust-ncg'``.
+        - ``'trust-ncg'`` -- True trust-region Newton-CG via
+          ``scipy.optimize.minimize`` (Steihaug-Toint inner solver) using
+          the *true* (unmodified) sparse Hessian via matrix-free Hessian-
+          vector products. Exploits negative-curvature directions to cross
+          saddles between local minima, which the ``'newton'`` LM-modified
+          path cannot. Use this when the energy landscape may have nearby
+          basins separated by saddles (low-twist relaxation, large
+          unit-cell periodic problems). Supports homogeneous mean
+          constraints (``B U = 0``) via null-space projection.
         - ``'pseudo_dynamics'`` -- implicit theta-method on the gradient flow
           dU/dt = -nabla E. At each step solves (M + beta*dt*H)*dU = -dt*grad
           with adaptive dt and energy-monitored step rejection. More robust
@@ -378,6 +390,174 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     )
     return {
         "x": U_best, "fun": E_best, "jac": grad_best, "nit": nit, "nfev": nfev,
+        "message": exit_reason, "success": success,
+    }
+
+
+def _trust_ncg_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
+                      max_iter: int, gtol: float, rtol: float,
+                      etol: float, etol_window: int,
+                      display: bool,
+                      mean_B: "sparse.csr_matrix | None" = None,
+                      mean_t: "np.ndarray | None" = None) -> dict:
+    """True trust-region Newton-CG solver via scipy.optimize.minimize.
+
+    Unlike :func:`_newton_solve` (Levenberg-Marquardt damping + an
+    eigenvalue-flipped *modified* Hessian that is always positive-definite),
+    this solver uses the **true (unmodified) Hessian** via the matrix-free
+    ``energy_func.hessp`` interface, fed to scipy's ``trust-ncg`` method.
+    The Steihaug-Toint CG inner solver exploits negative-curvature
+    directions to step across saddles between local minima -- something
+    the LM+modified-H solver cannot do.
+
+    When to prefer this over ``_newton_solve`` (i.e. ``method="newton"``):
+      - The energy landscape may have multiple nearby local minima
+        separated by saddles (e.g. low-twist periodic relaxation where
+        single-DW and 2DW topologies are both stationary points).
+      - Whenever you would want a "true" Newton step that follows the
+        unmodified Hessian's eigenstructure rather than a regularized
+        approximation that always points downhill.
+
+    Equality constraints ``B U = t`` (e.g. PeriodicPairConstraint) are
+    handled via null-space projection:  ``P = I - B^T (B B^T)^{-1} B``
+    so every search direction stays in null(B) exactly. The current
+    implementation only supports homogeneous constraints (``t = 0``),
+    which is true for PeriodicPairConstraint by construction. Use
+    :class:`PinnedConstraints` (separate path in
+    :func:`RelaxationSolver.solve`) for inhomogeneous DOF pins.
+
+    Returns the same dict shape as :func:`_newton_solve`:
+        ``{"x", "fun", "jac", "nit", "nfev", "message", "success"}``.
+    """
+    import scipy.optimize as opt
+
+    has_mean = mean_B is not None
+    if has_mean:
+        if mean_B.shape[1] != len(U0):
+            raise ValueError(
+                f"mean_B has {mean_B.shape[1]} cols, expected {len(U0)}"
+            )
+        if mean_t is not None and float(np.linalg.norm(mean_t)) > 1e-10:
+            raise NotImplementedError(
+                "_trust_ncg_solve currently only supports homogeneous "
+                f"(t = 0) mean constraints; got ||t|| = "
+                f"{float(np.linalg.norm(mean_t)):.3e}"
+            )
+        from scipy.linalg import lu_factor, lu_solve
+        BBT_dense = (mean_B @ mean_B.T).toarray()
+        BBT_lu = lu_factor(BBT_dense)
+
+        def project(v: np.ndarray) -> np.ndarray:
+            return v - mean_B.T @ lu_solve(BBT_lu, mean_B @ v)
+    else:
+        def project(v: np.ndarray) -> np.ndarray:
+            return v
+
+    # Initial energy + gradient (used for relative-tolerance reference).
+    E0_val, grad0 = energy_func(U0)
+    gnorm0 = max(float(np.linalg.norm(grad0)), 1.0)
+
+    def fun(U: np.ndarray) -> float:
+        return float(energy_func(project(U))[0])
+
+    def jac(U: np.ndarray) -> np.ndarray:
+        return project(energy_func(project(U))[1])
+
+    def hessp(U: np.ndarray, p: np.ndarray) -> np.ndarray:
+        return project(energy_func.hessp(project(U), project(p)))
+
+    # Track best iterate + iteration progress.
+    state = {
+        "nit": 0,
+        "best_x": U0.copy(),
+        "best_E": float(E0_val),
+        "best_grad": grad0.copy(),
+        "recent_E": [float(E0_val)],
+        "t_start": perf_counter(),
+        "stagnated": False,
+    }
+
+    def callback(xk: np.ndarray) -> bool:
+        state["nit"] += 1
+        x_proj = project(xk)
+        E_now, g_now = energy_func(x_proj)
+        E_now = float(E_now)
+        g_proj = project(g_now)
+        gn = float(np.linalg.norm(g_proj))
+        state["recent_E"].append(E_now)
+        if E_now < state["best_E"]:
+            state["best_x"] = x_proj.copy()
+            state["best_E"] = E_now
+            state["best_grad"] = g_proj.copy()
+        # Energy stagnation
+        if len(state["recent_E"]) >= etol_window + 1:
+            window = state["recent_E"][-(etol_window + 1):]
+            de = (window[0] - window[-1]) / max(abs(window[-1]), 1.0)
+            if de < etol:
+                state["stagnated"] = True
+                return True   # signal scipy to stop
+        # Relative gradient
+        if gn < gtol or (gn / gnorm0) < rtol:
+            return True
+        if display and (state["nit"] % 5 == 0 or state["nit"] <= 3):
+            t = perf_counter() - state["t_start"]
+            print(
+                f"  iter {state['nit']:4d}: E = {E_now:.4f}, "
+                f"|grad| = {gn:.2e} (rel {gn/gnorm0:.2e}), t = {t:.1f}s"
+            )
+        return False
+
+    try:
+        res = opt.minimize(
+            fun, U0, jac=jac, hessp=hessp,
+            method="trust-ncg",
+            callback=callback,
+            options={"maxiter": max_iter, "disp": False},
+        )
+        # Use the best-seen iterate (scipy may have stepped back at exit).
+        U_final = state["best_x"]
+        E_final, grad_final = energy_func(project(U_final))
+        E_final = float(E_final)
+        gn_final = float(np.linalg.norm(project(grad_final)))
+        if state["stagnated"]:
+            exit_reason = (
+                f"converged (energy stagnation over {etol_window} iters)"
+            )
+            success = True
+        elif gn_final < gtol:
+            exit_reason = (
+                f"converged (absolute |grad| = {gn_final:.2e} < gtol)"
+            )
+            success = True
+        elif gn_final / gnorm0 < rtol:
+            exit_reason = (
+                f"converged (relative |grad|/|grad0| = "
+                f"{gn_final/gnorm0:.2e} < rtol)"
+            )
+            success = True
+        elif state["nit"] >= max_iter:
+            exit_reason = f"max iterations ({max_iter}) reached"
+            success = False
+        else:
+            exit_reason = f"scipy: {res.message}"
+            success = bool(res.success)
+    except KeyboardInterrupt:
+        U_final = state["best_x"]
+        E_final, grad_final = energy_func(project(U_final))
+        E_final = float(E_final)
+        gn_final = float(np.linalg.norm(project(grad_final)))
+        exit_reason = "interrupted (returning best iterate)"
+        success = False
+
+    if display:
+        print(
+            f"  trust-ncg: {exit_reason}  "
+            f"(best E = {E_final:.4f}, n_iter = {state['nit']})"
+        )
+
+    return {
+        "x": U_final, "fun": E_final, "jac": project(grad_final),
+        "nit": state["nit"], "nfev": state["nit"] + 1,
         "message": exit_reason, "success": success,
     }
 
@@ -929,8 +1109,8 @@ class RelaxationSolver:
             t_start = perf_counter()
 
         # Run optimizer
-        if cfg.method in ("newton", "pseudo_dynamics"):
-            if cfg.method == "newton":
+        if cfg.method in ("newton", "trust-ncg", "pseudo_dynamics"):
+            if cfg.method in ("newton", "trust-ncg"):
                 # Assemble mean-constraint matrix in free-DOF space (if any).
                 mean_B = mean_t = None
                 if mean_constraints:
@@ -938,19 +1118,26 @@ class RelaxationSolver:
                     mean_B, mean_t = stack_mean_constraints(
                         mean_constraints, conv, constraints,
                     )
-                res = _newton_solve(
-                    energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
-                    cfg.etol, cfg.etol_window, cfg.display,
-                    linear_solver=cfg.linear_solver,
-                    linear_solver_tol=cfg.linear_solver_tol,
-                    linear_solver_maxiter=cfg.linear_solver_maxiter,
-                    mean_B=mean_B, mean_t=mean_t,
-                )
+                if cfg.method == "newton":
+                    res = _newton_solve(
+                        energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
+                        cfg.etol, cfg.etol_window, cfg.display,
+                        linear_solver=cfg.linear_solver,
+                        linear_solver_tol=cfg.linear_solver_tol,
+                        linear_solver_maxiter=cfg.linear_solver_maxiter,
+                        mean_B=mean_B, mean_t=mean_t,
+                    )
+                else:
+                    res = _trust_ncg_solve(
+                        energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
+                        cfg.etol, cfg.etol_window, cfg.display,
+                        mean_B=mean_B, mean_t=mean_t,
+                    )
             else:
                 if mean_constraints:
                     raise NotImplementedError(
                         "mean_constraints are currently only supported "
-                        "with method='newton'"
+                        "with method='newton' or 'trust-ncg'"
                     )
                 res = _pseudo_dynamics_solve(
                     energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,

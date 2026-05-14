@@ -282,6 +282,61 @@ def test_mean_constraint_iterative_matches_direct():
     assert np.linalg.norm(c_iter) < 1e-6
 
 
+def test_trust_ncg_with_mean_constraints():
+    """method='trust-ncg' should honor mean_constraints via null-space
+    projection. Compare against method='newton' on a convex case where
+    they must agree."""
+    mesh, _, _, conv = _build_finite(theta=1.5, n_cells=2, pixel_size=1.2)
+    Nv = conv.n_vertices
+    pinned = {Nv + v for v in range(Nv)} | {3 * Nv + v for v in range(Nv)}
+    pi = np.array(sorted(pinned), dtype=int)
+    fi = np.array(sorted(set(range(conv.n_sol)) - pinned), dtype=int)
+    pc = PinnedConstraints(fi, pi, np.zeros(len(pi)), len(fi), conv.n_sol)
+
+    mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
+    rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
+
+    common = dict(
+        moire_interface=GRAPHENE_GRAPHENE,
+        theta_twist=1.5, delta=0.0,
+        mesh=mesh, constraints=pc,
+        mean_constraints=[mdc, rot],
+    )
+
+    cfg_newton = SolverConfig(
+        method="newton", linear_solver="direct", display=False,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+    )
+    r_newton = RelaxationSolver(cfg_newton).solve(**common)
+
+    cfg_trncg = SolverConfig(
+        method="trust-ncg", display=False,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+    )
+    r_trncg = RelaxationSolver(cfg_trncg).solve(**common)
+
+    # Energies should agree on this convex case.
+    rel_dE = (
+        abs(r_trncg.total_energy - r_newton.total_energy)
+        / abs(r_newton.total_energy)
+    )
+    assert rel_dE < 1e-3, (
+        f"trust-ncg vs newton (with mean_constraints) energies disagree: "
+        f"E_newton={r_newton.total_energy:.4e}, "
+        f"E_trncg={r_trncg.total_energy:.4e}, rel={rel_dE:.2e}"
+    )
+
+    # trust-ncg's null-space projection must satisfy the constraints exactly.
+    B, t = stack_mean_constraints([mdc, rot], conv, pinned_constraints=pc)
+    c_trncg = B @ r_trncg.optimizer_result.x - t
+    assert np.linalg.norm(c_trncg) < 1e-6, (
+        f"trust-ncg violates mean constraints: ||c|| = "
+        f"{np.linalg.norm(c_trncg):.2e}"
+    )
+
+
 def test_mean_constraint_iterative_with_rotation_only():
     """Iterative path with a single (k=1) constraint (rotation only) —
     exercises the rank-1 projector edge case."""
