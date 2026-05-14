@@ -43,6 +43,41 @@ class TestPseudoDynamics:
             f"newton E={res_newton.total_energy:.2f} (rel diff {rel_diff:.3%})"
         )
 
+    def test_trust_ncg_matches_newton_on_convex_case(self):
+        """trust-ncg and newton should agree on a near-convex problem.
+
+        On TBG θ=2° the energy landscape has a single well-defined
+        minimum; both LM-damped Newton (modified Hessian) and true
+        trust-region Newton-CG (unmodified Hessian) should converge to
+        the same relaxed state, despite using different inner step rules.
+        """
+        common = dict(pixel_size=1.5, max_iter=80, gtol=1e-3,
+                      display=False, min_mesh_points=30)
+
+        cfg_newton = SolverConfig(method="newton", **common)
+        res_newton = RelaxationSolver(cfg_newton).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+        )
+
+        cfg_trncg = SolverConfig(method="trust-ncg", **common)
+        res_trncg = RelaxationSolver(cfg_trncg).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+        )
+
+        assert res_newton.total_energy < res_newton.unrelaxed_energy
+        assert res_trncg.total_energy < res_trncg.unrelaxed_energy
+
+        # Agreement to 0.1% on the convex case.
+        rel_diff = (
+            abs(res_trncg.total_energy - res_newton.total_energy)
+            / abs(res_newton.total_energy)
+        )
+        assert rel_diff < 1e-3, (
+            f"trust-ncg E={res_trncg.total_energy:.2f} disagrees with "
+            f"newton E={res_newton.total_energy:.2f} "
+            f"(rel diff {rel_diff:.3%})"
+        )
+
     def test_iterative_matches_direct(self):
         """linear_solver='iterative' should give the same answer as 'direct'.
 

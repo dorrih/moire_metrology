@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`SolverConfig(method="trust-ncg")`** — true trust-region Newton-CG
+  solver via `scipy.optimize.minimize`, using the unmodified sparse
+  Hessian through matrix-free Hessian-vector products
+  (`energy_func.hessp`). Unlike the existing `method="newton"`
+  (Levenberg-Marquardt damped Newton on an eigenvalue-flipped *modified*
+  Hessian), the new method can follow negative-curvature directions and
+  step across saddles between local minima — essential when the
+  problem may have multiple nearby basins (e.g., low-twist periodic
+  relaxation where the energy landscape can host both single- and
+  double-domain-wall topologies as stationary points). Supports
+  homogeneous `mean_constraints` (`B U = 0`, satisfied by
+  `PeriodicPairConstraint`, `RotationConstraint`, and
+  `MeanDisplacementConstraint` with default target) via null-space
+  projection. Use this method when you suspect the LM-modified-Newton
+  is converging to a higher-energy local minimum rather than the global
+  one for your problem.
+
 - **`mean_constraints` now work with `linear_solver="iterative"`** via
   a null-space (projection) method. Each Newton step decomposes
   `dU = dU_p + dU_h` where `dU_p` is the minimum-norm constraint
