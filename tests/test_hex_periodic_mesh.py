@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from scipy.spatial import cKDTree
 
 from moire_metrology import (

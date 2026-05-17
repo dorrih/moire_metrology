@@ -334,8 +334,14 @@ class PeriodicPairConstraint:
             base = ox if comp == "x" else oy
             for pair_idx, (i, j) in enumerate(self.pairs):
                 row = c_idx * N + pair_idx
-                rows[k] = row; cols[k] = base + i; data[k] = 1.0; k += 1
-                rows[k] = row; cols[k] = base + j; data[k] = -1.0; k += 1
+                rows[k] = row
+                cols[k] = base + i
+                data[k] = 1.0
+                k += 1
+                rows[k] = row
+                cols[k] = base + j
+                data[k] = -1.0
+                k += 1
 
         B = sparse.csr_matrix(
             (data, (rows, cols)),
