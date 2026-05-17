@@ -256,8 +256,107 @@ class RotationConstraint:
         return B, t
 
 
+@dataclass(frozen=True)
+class PeriodicPairConstraint:
+    r"""Linear equality constraints enforcing ``u_i = u_j`` for vertex pairs.
+
+    For each ``(i, j)`` in ``pairs`` and each component ``c ∈ components``
+    (typically ``("x", "y")``) the constraint
+
+        u_{c,i} - u_{c,j} = 0
+
+    is added as a single row. Used to impose kinematic periodicity across
+    a cut in an otherwise open mesh — e.g. matching the two long edges
+    of a finite parallelogram mesh into a cylinder, or matching the
+    three pairs of opposite edges of a Wigner-Seitz hexagonal supercell
+    (see :func:`moire_metrology.mesh.generate_hex_periodic_mesh` and
+    :func:`moire_metrology.mesh.identify_hex_periodic_boundary`).
+
+    Stress continuity is not enforced by the constraint alone; any
+    residual traction mismatch across the cut is localized to within
+    one element of the matched edges, which is acceptable when the cut
+    is far from the physics of interest or when the lattice is itself
+    periodic (so the cut sits at a true symmetry plane of the problem).
+
+    Attributes
+    ----------
+    layer_idx : int
+        Global layer index (0 = outermost of the top flake).
+    pairs : ndarray of int, shape (N, 2)
+        Vertex index pairs to identify. Each pair contributes
+        ``len(components)`` scalar constraints.
+    components : tuple[str, ...]
+        Which components to match; default ``("x", "y")``.
+    """
+
+    layer_idx: int
+    pairs: np.ndarray
+    components: tuple[str, ...] = ("x", "y")
+
+    def __post_init__(self):
+        pr = np.asarray(self.pairs, dtype=np.int64)
+        if pr.ndim != 2 or pr.shape[1] != 2:
+            raise ValueError("pairs must have shape (N, 2)")
+        if np.any(pr < 0):
+            raise ValueError("vertex indices must be non-negative")
+        if np.any(pr[:, 0] == pr[:, 1]):
+            raise ValueError("each pair must reference two distinct vertices")
+        object.__setattr__(self, "pairs", pr)
+        for c in self.components:
+            if c not in ("x", "y"):
+                raise ValueError(
+                    f"components entries must be 'x' or 'y', got {c!r}"
+                )
+
+    @property
+    def n_rows(self) -> int:
+        return len(self.pairs) * len(self.components)
+
+    def build_matrix(
+        self,
+        conv: ConversionMatrices,
+    ) -> tuple[sparse.csr_matrix, np.ndarray]:
+        Nv = conv.n_vertices
+        nlayers_total = conv.nlayer1 + conv.nlayer2
+        n_sol = conv.n_sol
+        N = len(self.pairs)
+        C = len(self.components)
+
+        ox = self.layer_idx * Nv
+        oy = nlayers_total * Nv + self.layer_idx * Nv
+
+        rows = np.empty(2 * N * C, dtype=np.int64)
+        cols = np.empty(2 * N * C, dtype=np.int64)
+        data = np.empty(2 * N * C, dtype=float)
+
+        k = 0
+        for c_idx, comp in enumerate(self.components):
+            base = ox if comp == "x" else oy
+            for pair_idx, (i, j) in enumerate(self.pairs):
+                row = c_idx * N + pair_idx
+                rows[k] = row
+                cols[k] = base + i
+                data[k] = 1.0
+                k += 1
+                rows[k] = row
+                cols[k] = base + j
+                data[k] = -1.0
+                k += 1
+
+        B = sparse.csr_matrix(
+            (data, (rows, cols)),
+            shape=(N * C, n_sol),
+        )
+        t = np.zeros(N * C)
+        return B, t
+
+
 def stack_mean_constraints(
-    mean_constraints: list[MeanDisplacementConstraint | RotationConstraint],
+    mean_constraints: list[
+        MeanDisplacementConstraint
+        | RotationConstraint
+        | PeriodicPairConstraint
+    ],
     conv: ConversionMatrices,
     pinned_constraints: PinnedConstraints | None = None,
 ) -> tuple[sparse.csr_matrix, np.ndarray]:

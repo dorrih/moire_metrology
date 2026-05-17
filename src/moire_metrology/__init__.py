@@ -33,8 +33,18 @@ from .materials import (
     WSE2,
     Material,
 )
-from .mean_constraint import MeanDisplacementConstraint, RotationConstraint
-from .mesh import MoireMesh, generate_finite_mesh, generate_custom_mesh
+from .mean_constraint import (
+    MeanDisplacementConstraint,
+    PeriodicPairConstraint,
+    RotationConstraint,
+)
+from .mesh import (
+    MoireMesh,
+    generate_custom_mesh,
+    generate_finite_mesh,
+    generate_hex_periodic_mesh,
+    identify_hex_periodic_boundary,
+)
 from .pinning import PinningMap, InteractivePinner
 from .solver import RelaxationSolver, SolverConfig
 
@@ -65,8 +75,11 @@ __all__ = [
     "MoireMesh",
     "generate_finite_mesh",
     "generate_custom_mesh",
+    "generate_hex_periodic_mesh",
+    "identify_hex_periodic_boundary",
     "MeanDisplacementConstraint",
     "RotationConstraint",
+    "PeriodicPairConstraint",
     "PinningMap",
     "InteractivePinner",
     "RelaxationSolver",

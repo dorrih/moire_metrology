@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Hexagonal Wigner-Seitz periodic supercell mesh**:
+  `generate_hex_periodic_mesh(geometry, pixel_size)` builds a regular
+  hexagonal mesh centered on the AA stacking site, with exact C6
+  rotational symmetry around the center (vertex positions placed on a
+  triangular sub-lattice through origin with spacing vectors V1/N, V2/N,
+  filtered to those inside the WS hexagon, with the 6 corners added
+  explicitly).  `identify_hex_periodic_boundary(mesh)` returns the 6
+  corner-vertex indices, vertex-index lists on each of the 6 edges
+  (sorted counterclockwise), and 3 opposite-edge pair lists ready to
+  plug into `PeriodicPairConstraint`.
+  Compared to the parallelogram supercell built by `generate_finite_mesh`
+  (which has only C2 symmetry), this hexagonal cell respects the C3
+  symmetry of the moiré physics, which matters for low-twist relaxation
+  problems where C3 symmetry of the relaxed state is required (the
+  parallelogram cell systematically biases one moiré-vector direction
+  in problems with rich GSFE structure).
+
+- **`PeriodicPairConstraint`** is now a public class in
+  `moire_metrology.mean_constraint`, exported from the top-level
+  `moire_metrology` namespace. Encodes the linear equality
+  ``u_i = u_j`` for a list of vertex-index pairs on one layer, as
+  needed for kinematic periodicity across a mesh cut (one pair set per
+  pair of opposite edges of a finite supercell). It composes with
+  `MeanDisplacementConstraint` and `RotationConstraint` via
+  `stack_mean_constraints` and works with both `linear_solver="direct"`
+  (KKT) and `linear_solver="iterative"` (null-space projection).
+
 - **`SolverConfig(method="trust-ncg")`** — true trust-region Newton-CG
   solver via `scipy.optimize.minimize`, using the unmodified sparse
   Hessian through matrix-free Hessian-vector products
