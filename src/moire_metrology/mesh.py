@@ -268,6 +268,234 @@ def _structured_triangulation_open(ns: int, nt: int) -> np.ndarray:
     return np.array(triangles, dtype=np.int64)
 
 
+def _hex_corners(V1: np.ndarray, V2: np.ndarray) -> np.ndarray:
+    """Wigner-Seitz cell corners of the moire lattice (V1, V2) around origin.
+
+    For a hexagonal lattice with primitive vectors V1, V2 at 60° apart and
+    |V1| = |V2|, the WS cell is a regular hexagon with 6 corners at:
+
+        c1 =  (V1 + V2) / 3         (an AB-stacking site)
+        c2 = (-V1 + 2*V2) / 3       (a BA-stacking site)
+        c3 = (-2*V1 + V2) / 3       (AB)
+        c4 = -c1                    (BA)
+        c5 = -c2                    (AB)
+        c6 = -c3                    (BA)
+
+    Returns shape (6, 2) array of corner positions, ordered counterclockwise.
+    """
+    c1 = (V1 + V2) / 3.0
+    c2 = (-V1 + 2.0 * V2) / 3.0
+    c3 = (-2.0 * V1 + V2) / 3.0
+    return np.array([c1, c2, c3, -c1, -c2, -c3])
+
+
+def _inside_hex(points: np.ndarray, V1: np.ndarray, V2: np.ndarray,
+                 eps: float = 1e-9) -> np.ndarray:
+    """Boolean mask: which 2D ``points`` (shape (..., 2)) lie inside (or on
+    the boundary of) the Wigner-Seitz hexagon of the moire lattice (V1, V2).
+
+    Test: |p · n| ≤ |n|² / 2  for n in {V1, V2, V2 - V1}  (three independent
+    constraints; the other three are their negatives).
+    """
+    neighbors = np.array([V1, V2, V2 - V1])
+    out = np.ones(points.shape[:-1], dtype=bool)
+    for n in neighbors:
+        n_sq_half = 0.5 * float(n @ n)
+        out &= np.abs(points @ n) <= n_sq_half + eps
+    return out
+
+
+def generate_hex_periodic_mesh(
+    geometry: MoireGeometry,
+    pixel_size: float = 2.0,
+    eps_boundary_frac: float = 0.05,
+) -> MoireMesh:
+    """Generate a hexagonal Wigner-Seitz periodic mesh centered on the AA
+    stacking site (origin in our convention).
+
+    The mesh has exact 6-fold rotational symmetry around the center: vertex
+    positions are placed on a triangular sub-lattice through origin with
+    spacing vectors V1/N, V2/N (so the sub-lattice has the same orientation
+    as the moire lattice), then filtered to those inside the WS hexagon.
+    The 6 WS corners are added explicitly.
+
+    Use this together with the boundary identification helper
+    :func:`identify_hex_periodic_boundary` and :class:`PeriodicPairConstraint`
+    (3 pair sets, one for each pair of opposite edges) plus a
+    :class:`PinnedConstraints` pinning the 6 corners at U=0 — see the
+    online docs/example for a complete recipe.
+
+    Compared to :func:`generate_finite_mesh` (parallelogram supercell, C2
+    symmetry only), the hexagonal cell respects C3 symmetry around the AA
+    site and the C3 orbit of AB / BA corner pins. This eliminates the
+    direction-selection artifact that parallelogram supercells exhibit at
+    low twist angles in problems with rich GSFE structure.
+
+    Parameters
+    ----------
+    geometry : MoireGeometry
+        Moire geometry defining V1, V2.
+    pixel_size : float
+        Target vertex spacing in nm.  The actual spacing is set by
+        rounding |V1| / pixel_size to the nearest integer N, then using
+        spacing |V1| / N (so the triangular sub-lattice tiles the cell
+        exactly).
+    eps_boundary_frac : float
+        Tolerance for the "inside hex" test, in units of pixel_size.
+        Vertices within this tolerance of the boundary are kept.
+
+    Returns
+    -------
+    MoireMesh
+        Hexagonal-cell mesh with ``is_periodic=False`` (open boundary;
+        periodicity is enforced via PeriodicPairConstraint after boundary
+        identification).  V1, V2 stored as the moire vectors (NOT the
+        rhombus-cell vectors), so downstream code computing stacking
+        phases from positions uses the correct geometry.
+    """
+    from scipy.spatial import Delaunay
+
+    V1 = np.asarray(geometry.V1)
+    V2 = np.asarray(geometry.V2)
+    L = float(np.linalg.norm(V1))
+    N = max(2, int(round(L / pixel_size)))
+    g1 = V1 / N
+    g2 = V2 / N
+
+    # Search box for triangular-sub-lattice points
+    R = N + 2
+    ii, jj = np.meshgrid(np.arange(-R, R + 1), np.arange(-R, R + 1),
+                          indexing='ij')
+    coords = (ii[..., None] * g1 + jj[..., None] * g2).reshape(-1, 2)
+    eps = eps_boundary_frac * pixel_size
+    mask = _inside_hex(coords, V1, V2, eps=eps)
+    interior = coords[mask]
+
+    # Add the 6 WS corners explicitly so they are mesh vertices.
+    corners = _hex_corners(V1, V2)
+    all_pts = np.vstack([interior, corners])
+
+    # Deduplicate (corner positions may coincide with sub-lattice points)
+    decimals = max(0, int(-np.log10(0.01 * pixel_size)))
+    key = np.round(all_pts, decimals=decimals)
+    _, unique_idx = np.unique(key, axis=0, return_index=True)
+    all_pts = all_pts[np.sort(unique_idx)]
+
+    # Delaunay triangulation
+    tri = Delaunay(all_pts)
+    triangles = tri.simplices.astype(np.int64)
+
+    return MoireMesh(
+        points=all_pts.T,
+        triangles=triangles,
+        V1=V1,
+        V2=V2,
+        ns=N, nt=N, n_scale=1,
+        is_periodic=False,
+    )
+
+
+def identify_hex_periodic_boundary(
+    mesh: MoireMesh,
+    tol: float = 1e-6,
+) -> dict:
+    """Identify boundary topology of a hexagonal-cell mesh built by
+    :func:`generate_hex_periodic_mesh`.
+
+    Returns a dict with:
+
+    - ``"corners"`` — shape (6,) int array, mesh vertex indices for the 6
+      WS corners, ordered c1, c2, c3, c4, c5, c6 (counterclockwise).
+    - ``"edges"`` — dict mapping k ∈ {1, ..., 6} to the array of vertex
+      indices on edge k, sorted along the c_{k} → c_{k+1} tangent
+      direction.  Each edge includes its two endpoint corners.
+    - ``"pairs"`` — list of three dicts, one per opposite-edge pair:
+      ``{"source": k_src, "dest": k_dst, "translation": v, "src_indices":
+      array, "dst_indices": array}``, where ``dst_indices[i] ≈
+      src_indices[i] + translation`` in the parent moire lattice.
+
+    Edge labelling (counterclockwise, edge k from c_k to c_{k+1}):
+        k=1: c1→c2, outward normal +V2,        pair with k=4 (translation -V2)
+        k=2: c2→c3, outward normal V2-V1,      pair with k=5 (-(V2-V1))
+        k=3: c3→c4, outward normal -V1,        pair with k=6 (+V1)
+        k=4: c4→c5, outward normal -V2,
+        k=5: c5→c6, outward normal V1-V2,
+        k=6: c6→c1, outward normal +V1.
+
+    The three pairs (1↔4, 2↔5, 3↔6) cover ALL boundary vertices including
+    corners (each corner is on two edges, so appears in two pair lists).
+    """
+    from scipy.spatial import cKDTree
+
+    V1, V2 = np.asarray(mesh.V1), np.asarray(mesh.V2)
+    points = mesh.points.T   # (Nv, 2)
+    corners = _hex_corners(V1, V2)
+
+    # Find which mesh vertex each corner corresponds to.
+    tree = cKDTree(points)
+    d_corner, corner_idxs = tree.query(corners, k=1)
+    if d_corner.max() > tol:
+        raise ValueError(
+            f"Hex corners not found on mesh (max snap distance "
+            f"{d_corner.max():.3e}). Mesh must include the 6 WS corners."
+        )
+
+    # Edge normals (n_k, sign so that p·n = +|n|²/2 on the edge)
+    edge_defs = [
+        (1, V2,      +1),
+        (2, V2 - V1, +1),
+        (3, V1,      -1),
+        (4, V2,      -1),
+        (5, V2 - V1, -1),
+        (6, V1,      +1),
+    ]
+    edges = {}
+    for k, n_vec, sign in edge_defs:
+        target = sign * 0.5 * float(n_vec @ n_vec)
+        proj = points @ n_vec
+        on_edge = np.abs(proj - target) < tol * max(1.0, np.linalg.norm(n_vec))
+        idxs = np.where(on_edge)[0]
+        # Sort along the tangent from c_k to c_{k+1}
+        t = corners[k % 6] - corners[(k - 1) % 6]
+        sort_key = points[idxs] @ t
+        edges[k] = idxs[np.argsort(sort_key)]
+
+    # Build the three pairings.  For each pair (src, dst, translation),
+    # match each src vertex to the dst vertex closest to src + translation.
+    pair_defs = [
+        (1, 4, -V2),
+        (2, 5, V1 - V2),
+        (6, 3, -V1),
+    ]
+    pairs = []
+    for src_k, dst_k, translation in pair_defs:
+        src_idxs = edges[src_k]
+        dst_idxs = edges[dst_k]
+        expected = points[src_idxs] + translation
+        tree_dst = cKDTree(points[dst_idxs])
+        d, kk = tree_dst.query(expected, k=1)
+        matched = dst_idxs[kk]
+        if d.max() > tol * max(1.0, np.linalg.norm(translation)):
+            raise ValueError(
+                f"Edge pair {src_k}↔{dst_k} failed to match: max mismatch "
+                f"{d.max():.3e} (translation magnitude "
+                f"{np.linalg.norm(translation):.3e})"
+            )
+        pairs.append({
+            "source": src_k,
+            "dest": dst_k,
+            "translation": translation,
+            "src_indices": src_idxs,
+            "dst_indices": matched,
+        })
+
+    return {
+        "corners": corner_idxs,
+        "edges": edges,
+        "pairs": pairs,
+    }
+
+
 def _circle_points(
     cx: float, cy: float, r: float, n: int,
 ) -> list[tuple[float, float]]:
