@@ -574,7 +574,13 @@ def main() -> None:
         U_full[3 * Nv:4 * Nv] = -uy / 2.0
         U0_free = U_full[constraints.free_indices]
 
-        # ----- Step 7: relaxation via pseudo_dynamics -----
+        # ----- Step 7: relaxation -----
+        # method='newton' here: this is a constrained-flake relaxation
+        # seeded from a strain-extracted IC that is already close to a
+        # basin minimum; LM-damped Newton converges quickly in this
+        # regime and the basin-selection issue (relevant only at very
+        # low twist with strong AB↔BA asymmetry) does not apply for
+        # MoSe2/WSe2 at θ ≈ 1.5°.
         cfg = SolverConfig(
             method="newton",
             pixel_size=pixel_size,

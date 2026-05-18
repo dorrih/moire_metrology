@@ -62,6 +62,17 @@ import _cli
 
 
 # ── Presets ────────────────────────────────────────────────────────────
+#
+# Method choice rationale: the `graphene` preset uses `'newton'` because
+# graphene/graphene at θ=0.2° has c4 = c5 = 0 (inversion-symmetric GSFE,
+# AB ↔ BA equivalent) — the energy landscape is single-basin and
+# convex-near-the-minimum, so the LM-damped Newton's modified-Hessian
+# restriction is harmless and its quadratic convergence is fast.  For
+# TDBG-DFT-D2 and other interfaces with strong AB ↔ BA asymmetry
+# (non-zero c4, c5) at low twist where multiple basins coexist, prefer
+# `'trust-ncg'` (default) or `'L-BFGS-B'` instead — see
+# `examples/tdbg_low_twist_basin_selection.py` for a demo of solver-
+# dependent basin selection in TDBG.
 
 PRESETS = {
     "graphene": dict(

@@ -106,6 +106,13 @@ def main() -> None:
         description=__doc__,
         formatter_class=_cli.argparse.RawDescriptionHelpFormatter,
     )
+    # `default_method="newton"` is chosen here because graphene homobilayers
+    # have c4 = c5 = 0 (no AB ↔ BA asymmetry → single-basin energy
+    # landscape), so the LM-damped Newton's modified-Hessian path is
+    # harmless and fast.  For interfaces with non-zero c4, c5 at very low
+    # twist (e.g. TDBG-DFT-D2 below θ ≈ 0.025°) multiple basins exist
+    # and `'newton'` may commit to a higher-energy one — pass
+    # `--method trust-ncg` (default) or `--method L-BFGS-B` instead.
     _cli.add_common_args(
         parser,
         default_interface="graphene",
