@@ -13,6 +13,7 @@ interfaces.
 | `multilayer_penetration.py` | Relaxation penetration through a multi-layer stack | Graphene/Graphene (0.035 deg, 60/60) | 10-30 min |
 | `strain_extraction_and_pinning.py` | Inverse strain extraction + constrained relaxation | MoSe2/WSe2 H | seconds |
 | `spatial_strain_relaxation.py` | End-to-end strain extraction from data + relaxation | MoSe2/WSe2 H | ~10 min |
+| `tdbg_low_twist_basin_selection.py` | Solver choice determines SDW vs 2DW basin at low twist | TDBG-DFTD2 (0.02 deg) | ~8 min |
 
 ## bilayer_relaxation.py
 

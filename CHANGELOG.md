@@ -79,6 +79,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   landscapes — use this method for deliberate basin discovery when
   the U=0 IC sits near a saddle.
 
+- **`examples/tdbg_low_twist_basin_selection.py`** — pedagogical demo
+  showing that on the same TDBG-DFT-D2 problem at θ=0.02° (hex
+  Wigner-Seitz periodic cell, ε=0 / fix_bottom), `method='trust-ncg'`
+  from U=0 settles into a higher-energy "single domain wall" (SDW)
+  basin (straight triangular DW network), while `method='L-BFGS-B'`
+  from the same U=0 lands in a lower-energy "2DW" basin (curved
+  soap-foam topology around circular AB/BA domains). Same energy
+  functional, same IC, different basin — the difference is entirely
+  in the solver trajectory. `method='two_phase'` recovers the 2DW
+  basin with polished gradient. Runs in ~8 minutes; renders a
+  3-panel V_GSFE + |Δu| comparison.
+
 - **`SolverConfig(method="two_phase")`** — a discovery + polish
   pipeline that runs `'L-BFGS-B'` first with a loosened gradient
   target (`gtol_discover = gtol_discover_factor * gtol`) and a
