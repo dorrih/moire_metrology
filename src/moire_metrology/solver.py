@@ -562,6 +562,184 @@ def _trust_ncg_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     }
 
 
+def _lbfgs_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
+                 max_iter: int, gtol: float, rtol: float,
+                 etol: float, etol_window: int,
+                 display: bool,
+                 maxcor: int = 50, maxls: int = 40,
+                 ftol: float = 1e-15,
+                 mean_B: "sparse.csr_matrix | None" = None,
+                 mean_t: "np.ndarray | None" = None) -> dict:
+    """Limited-memory BFGS-B solver via scipy.optimize.minimize.
+
+    Gradient-only quasi-Newton: builds an approximate inverse Hessian
+    from the last ``maxcor`` gradient differences (no real Hessian
+    needed, no Hessian-vector products). Each iteration costs one
+    energy+gradient evaluation plus a cheap history update.
+
+    When to prefer this over :func:`_trust_ncg_solve` (i.e.
+    ``method="trust-ncg"``):
+
+      - **Discovery from U=0 in multi-basin landscapes.** In low-twist
+        TDBG and similar problems the energy landscape hosts several
+        nearby local minima (e.g. single-DW vs 2DW topologies); the
+        smoothed quasi-Newton trajectory of L-BFGS-B systematically
+        lands in a *different* basin from the same U=0 initial guess
+        than trust-ncg does. Empirically, for TDBG with significant
+        AB/BA asymmetry (non-zero ``c4, c5``), L-BFGS-B reaches the
+        deeper 2DW basin while trust-ncg lands in the shallower
+        single-DW basin.
+      - You don't have well-shaped Hessian information (e.g. at U=0
+        on a highly anisotropic mesh).
+
+    Trade-off vs trust-ncg: slower final convergence (first-order),
+    no negative-curvature steering, no formal saddle-crossing
+    capability — but the smoothed trajectory often ends up in a
+    deeper basin in practice.
+
+    Equality constraints ``B U = t`` (e.g. PeriodicPairConstraint) are
+    handled via null-space projection (``P = I - B^T (B B^T)^{-1} B``)
+    using a sparse LU factorization of ``B B^T``; every search
+    direction stays in ``null(B)`` exactly. Only homogeneous
+    constraints (``t = 0``) are currently supported.
+
+    Returns the same dict shape as :func:`_newton_solve` and
+    :func:`_trust_ncg_solve`:
+        ``{"x", "fun", "jac", "nit", "nfev", "message", "success"}``.
+    """
+    has_mean = mean_B is not None
+    if has_mean:
+        if mean_B.shape[1] != len(U0):
+            raise ValueError(
+                f"mean_B has {mean_B.shape[1]} cols, expected {len(U0)}"
+            )
+        if mean_t is not None and float(np.linalg.norm(mean_t)) > 1e-10:
+            raise NotImplementedError(
+                "_lbfgs_solve currently only supports homogeneous "
+                f"(t = 0) mean constraints; got ||t|| = "
+                f"{float(np.linalg.norm(mean_t)):.3e}"
+            )
+        # Use sparse splu (NOT dense lu_factor): with many constraint
+        # rows (e.g. PeriodicPairConstraint on every boundary vertex)
+        # B B^T can be 10^4 x 10^4 or larger; densifying it has caused
+        # multi-GB allocations in research scripts. The sparse path is
+        # O(nnz) and exact for the same factorization.
+        from scipy.sparse.linalg import splu
+        BBT_sp = (mean_B @ mean_B.T).tocsc()
+        BBT_lu = splu(BBT_sp)
+
+        def project(v: np.ndarray) -> np.ndarray:
+            return v - mean_B.T @ BBT_lu.solve(mean_B @ v)
+    else:
+        def project(v: np.ndarray) -> np.ndarray:
+            return v
+
+    E0_val, grad0 = energy_func(U0)
+    gnorm0 = max(float(np.linalg.norm(project(grad0))), 1.0)
+
+    def fun_jac(U: np.ndarray) -> tuple[float, np.ndarray]:
+        Up = project(U)
+        E, g = energy_func(Up)
+        return float(E), project(g)
+
+    state = {
+        "nit": 0,
+        "best_x": project(U0).copy(),
+        "best_E": float(E0_val),
+        "best_grad": project(grad0).copy(),
+        "recent_E": [float(E0_val)],
+        "t_start": perf_counter(),
+        "stagnated": False,
+    }
+
+    def callback(xk: np.ndarray) -> None:
+        state["nit"] += 1
+        x_proj = project(xk)
+        E_now, g_now = energy_func(x_proj)
+        E_now = float(E_now)
+        g_proj = project(g_now)
+        state["recent_E"].append(E_now)
+        if E_now < state["best_E"]:
+            state["best_x"] = x_proj.copy()
+            state["best_E"] = E_now
+            state["best_grad"] = g_proj.copy()
+        if len(state["recent_E"]) >= etol_window + 1:
+            window = state["recent_E"][-(etol_window + 1):]
+            de = (window[0] - window[-1]) / max(abs(window[-1]), 1.0)
+            if de < etol:
+                state["stagnated"] = True
+        if display and (state["nit"] % 20 == 0 or state["nit"] <= 3):
+            gn = float(np.linalg.norm(g_proj))
+            t = perf_counter() - state["t_start"]
+            print(
+                f"  iter {state['nit']:4d}: E = {E_now:.4f}, "
+                f"|grad| = {gn:.2e} (rel {gn/gnorm0:.2e}), t = {t:.1f}s"
+            )
+
+    try:
+        # scipy's L-BFGS-B uses absolute gtol on the projected gradient.
+        # We pass it cfg.gtol but also do our own post-hoc rtol/etol
+        # checks below in case scipy stops on ftol stagnation instead.
+        # Note: 'disp' option is deprecated in scipy >= 1.13 for L-BFGS-B
+        # so we don't pass it — display is handled by our own callback.
+        res = minimize(
+            fun_jac, U0, method="L-BFGS-B", jac=True,
+            callback=callback,
+            options={
+                "maxiter": max_iter,
+                "maxcor": maxcor,
+                "maxls": maxls,
+                "ftol": ftol,
+                "gtol": gtol,
+            },
+        )
+        U_final = state["best_x"]
+        E_final, grad_final = energy_func(project(U_final))
+        E_final = float(E_final)
+        gn_final = float(np.linalg.norm(project(grad_final)))
+        if state["stagnated"]:
+            exit_reason = (
+                f"converged (energy stagnation over {etol_window} iters)"
+            )
+            success = True
+        elif gn_final < gtol:
+            exit_reason = (
+                f"converged (absolute |grad| = {gn_final:.2e} < gtol)"
+            )
+            success = True
+        elif gn_final / gnorm0 < rtol:
+            exit_reason = (
+                f"converged (relative |grad|/|grad0| = "
+                f"{gn_final/gnorm0:.2e} < rtol)"
+            )
+            success = True
+        elif state["nit"] >= max_iter:
+            exit_reason = f"max iterations ({max_iter}) reached"
+            success = False
+        else:
+            exit_reason = f"scipy: {res.message}"
+            success = bool(res.success)
+    except KeyboardInterrupt:
+        U_final = state["best_x"]
+        E_final, grad_final = energy_func(project(U_final))
+        E_final = float(E_final)
+        gn_final = float(np.linalg.norm(project(grad_final)))
+        exit_reason = "interrupted (returning best iterate)"
+        success = False
+
+    if display:
+        print(
+            f"  L-BFGS-B: {exit_reason}  "
+            f"(best E = {E_final:.4f}, n_iter = {state['nit']})"
+        )
+
+    return {
+        "x": U_final, "fun": E_final, "jac": project(grad_final),
+        "nit": state["nit"], "nfev": state["nit"] + 1,
+        "message": exit_reason, "success": success,
+    }
+
+
 def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                            max_iter: int, gtol: float, rtol: float,
                            beta: float,
@@ -1109,8 +1287,8 @@ class RelaxationSolver:
             t_start = perf_counter()
 
         # Run optimizer
-        if cfg.method in ("newton", "trust-ncg", "pseudo_dynamics"):
-            if cfg.method in ("newton", "trust-ncg"):
+        if cfg.method in ("newton", "trust-ncg", "L-BFGS-B", "pseudo_dynamics"):
+            if cfg.method in ("newton", "trust-ncg", "L-BFGS-B"):
                 # Assemble mean-constraint matrix in free-DOF space (if any).
                 mean_B = mean_t = None
                 if mean_constraints:
@@ -1127,8 +1305,14 @@ class RelaxationSolver:
                         linear_solver_maxiter=cfg.linear_solver_maxiter,
                         mean_B=mean_B, mean_t=mean_t,
                     )
-                else:
+                elif cfg.method == "trust-ncg":
                     res = _trust_ncg_solve(
+                        energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
+                        cfg.etol, cfg.etol_window, cfg.display,
+                        mean_B=mean_B, mean_t=mean_t,
+                    )
+                else:   # L-BFGS-B
+                    res = _lbfgs_solve(
                         energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
                         cfg.etol, cfg.etol_window, cfg.display,
                         mean_B=mean_B, mean_t=mean_t,
@@ -1137,7 +1321,7 @@ class RelaxationSolver:
                 if mean_constraints:
                     raise NotImplementedError(
                         "mean_constraints are currently only supported "
-                        "with method='newton' or 'trust-ncg'"
+                        "with method='newton', 'trust-ncg', or 'L-BFGS-B'"
                     )
                 res = _pseudo_dynamics_solve(
                     energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
@@ -1157,37 +1341,10 @@ class RelaxationSolver:
             result.message = res["message"]
             result.success = res["success"]
         else:
-            if mean_constraints:
-                raise NotImplementedError(
-                    "mean_constraints are currently only supported "
-                    "with method='newton' (linear_solver='direct')"
-                )
-            # Fallback to scipy.optimize.minimize (L-BFGS-B, etc.)
-            # Capture initial gradient norm for post-hoc relative check.
-            _, grad0 = energy_func(U0)
-            gnorm0 = max(np.linalg.norm(grad0), 1.0)
-
-            options = {"maxiter": cfg.max_iter, "gtol": cfg.gtol}
-            if cfg.method == "L-BFGS-B":
-                options["maxcor"] = 20
-                options["maxls"] = 40
-                options["ftol"] = 1e-15
-            result = minimize(
-                energy_func, U0, method=cfg.method, jac=True, options=options,
+            raise ValueError(
+                f"Unknown method {cfg.method!r}; supported: "
+                f"'newton', 'trust-ncg', 'L-BFGS-B', 'pseudo_dynamics'"
             )
-
-            # Post-hoc relative convergence check: scipy's L-BFGS-B only
-            # uses an absolute gtol.  If the relative criterion is met,
-            # override success/message so the result honestly reports
-            # convergence even when the absolute gtol was unreachable.
-            if not result.success and hasattr(result, "jac"):
-                gnorm_final = np.linalg.norm(result.jac)
-                rel = gnorm_final / gnorm0
-                if rel < cfg.rtol:
-                    result.success = True
-                    result.message = (
-                        f"converged (relative |grad|/|grad0| = "
-                        f"{rel:.2e} < rtol = {cfg.rtol:.0e})")
 
         if cfg.display:
             elapsed = perf_counter() - t_start
