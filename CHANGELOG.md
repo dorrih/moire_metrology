@@ -67,6 +67,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the sparse-LU KKT path for large problems (n_sol >> 10⁴). Previously
   `mean_constraints` raised `NotImplementedError` outside `direct`.
 
+- **`SolverConfig(method="L-BFGS-B")` now supports `mean_constraints`**
+  via the same null-space projection used by `'trust-ncg'`, with the
+  Gram-matrix factorization via `scipy.sparse.linalg.splu` (so
+  problems with O(10⁴) constraint rows from per-vertex pairings stay
+  within memory budget). Previously the L-BFGS-B path fell back to
+  raw `scipy.optimize.minimize` and refused `mean_constraints` with
+  `NotImplementedError`. L-BFGS-B's gradient-only quasi-Newton
+  trajectory often lands in qualitatively different basins from
+  `'trust-ncg'` on the same U=0 initial guess in multi-basin
+  landscapes — use this method for deliberate basin discovery when
+  the U=0 IC sits near a saddle.
+
+- **`SolverConfig(method="two_phase")`** — a discovery + polish
+  pipeline that runs `'L-BFGS-B'` first with a loosened gradient
+  target (`gtol_discover = gtol_discover_factor * gtol`) and a
+  separate iteration budget (`max_iter_discover`), then hands off
+  to `'trust-ncg'` for tight 2nd-order convergence inside whichever
+  basin discovery found. Recommended for low-twist relaxation where
+  both basin choice and high precision matter. New `SolverConfig`
+  fields: `max_iter_discover: int = 300`,
+  `gtol_discover_factor: float = 10.0`.
+
+### Changed
+
+- **Default `SolverConfig.method` is now `'trust-ncg'` instead of
+  `'newton'`.** The Levenberg-Marquardt damped Newton with
+  eigenvalue-flipped modified Hessian (`method='newton'`) cannot
+  follow negative-curvature directions and commits early to whichever
+  basin is locally convex-nearest, with no recourse to escape. Empirical
+  characterization in low-twist TDBG (where single-DW and 2DW
+  topologies are both valid stationary states) showed this can leave
+  the iterate in a higher-energy local minimum rather than the global
+  one. `'trust-ncg'` uses the unmodified Hessian via matrix-free
+  Hessian-vector products and can step across saddles when negative
+  curvature is encountered along the inner-CG path. Existing code that
+  explicitly sets `method='newton'` is unaffected; code that relies on
+  the default will now use `'trust-ncg'`. Strengthened the method
+  docstrings to call out basin-selection caveats for each method.
+
 ## [0.7.1] - 2026-04-13
 
 ### Fixed

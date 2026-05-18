@@ -45,23 +45,34 @@ class SolverConfig:
     method : str
         Optimization method.
 
-        - ``'newton'`` (default) -- Levenberg-Marquardt damped Newton with
-          a *modified* per-vertex GSFE Hessian (negative eigenvalues are
+        - ``'newton'`` -- Levenberg-Marquardt damped Newton with a
+          *modified* per-vertex GSFE Hessian (negative eigenvalues are
           flipped so the assembled Hessian is positive-definite by
           construction). Fast and well-behaved for nearly-convex problems
-          (typical at moderate-to-high twist angles), but cannot follow
-          negative-curvature directions and therefore cannot cross saddles
-          between basins. For multi-basin / low-twist problems where you
-          might land in the wrong local minimum, prefer ``'trust-ncg'``.
-        - ``'trust-ncg'`` -- True trust-region Newton-CG via
+          (typical at moderate-to-high twist angles), but **by design
+          cannot follow negative-curvature directions** and therefore
+          cannot cross saddles between basins. In multi-basin landscapes
+          (e.g. low-twist TDBG with significant AB/BA asymmetry, where
+          single-DW and 2DW topologies are both stationary states) the
+          eigenvalue flipping causes the iterate to commit early to
+          whichever basin is locally convex-nearest, with no recourse to
+          escape that basin later. **Not recommended as a default**; kept
+          available for high-twist / near-convex problems where its
+          fast quadratic convergence is desirable and saddle-crossing
+          is moot.
+        - ``'trust-ncg'`` (default) -- True trust-region Newton-CG via
           ``scipy.optimize.minimize`` (Steihaug-Toint inner solver) using
           the *true* (unmodified) sparse Hessian via matrix-free Hessian-
-          vector products. Exploits negative-curvature directions to cross
-          saddles between local minima, which the ``'newton'`` LM-modified
-          path cannot. Use this when the energy landscape may have nearby
-          basins separated by saddles (low-twist relaxation, large
-          unit-cell periodic problems). Supports homogeneous mean
-          constraints (``B U = 0``) via null-space projection.
+          vector products. Detects negative-curvature directions and
+          steps to the trust-region boundary along them — the property
+          that lets it cross saddles, which the ``'newton'`` LM-modified
+          path cannot. Good general-purpose default; supports the same
+          mean-constraint API as the other methods via null-space
+          projection. Caveat: although saddle-crossing is *available*,
+          from a generic IC like U=0 the inner CG's quadratic-step
+          preference still biases toward whichever basin is locally
+          quadratic-nearest. For deliberate basin discovery from U=0 in
+          low-twist problems, prefer ``'L-BFGS-B'`` or ``'two_phase'``.
         - ``'pseudo_dynamics'`` -- implicit theta-method on the gradient flow
           dU/dt = -nabla E. At each step solves (M + beta*dt*H)*dU = -dt*grad
           with adaptive dt and energy-monitored step rejection. More robust
@@ -139,7 +150,7 @@ class SolverConfig:
         operator and try again with a smaller dt if MINRES fails to converge.
     """
 
-    method: str = "newton"
+    method: str = "trust-ncg"
     max_iter: int = 200
     gtol: float = 1e-6
     rtol: float = 1e-4
