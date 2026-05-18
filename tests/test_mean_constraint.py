@@ -471,6 +471,64 @@ def test_lbfgs_with_periodic_pair_constraint():
     )
 
 
+def test_two_phase_with_mean_constraints():
+    """method='two_phase' (L-BFGS-B discovery → trust-ncg polish)
+    should converge with mean_constraints and produce an energy at
+    least as low as the single-phase trust-ncg result on a convex
+    case (polish phase has the same final tolerance)."""
+    mesh, _, _, conv = _build_finite(theta=1.5, n_cells=2, pixel_size=1.2)
+    Nv = conv.n_vertices
+    pinned = {Nv + v for v in range(Nv)} | {3 * Nv + v for v in range(Nv)}
+    pi = np.array(sorted(pinned), dtype=int)
+    fi = np.array(sorted(set(range(conv.n_sol)) - pinned), dtype=int)
+    pc = PinnedConstraints(fi, pi, np.zeros(len(pi)), len(fi), conv.n_sol)
+
+    mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
+    rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
+
+    common = dict(
+        moire_interface=GRAPHENE_GRAPHENE,
+        theta_twist=1.5, delta=0.0,
+        mesh=mesh, constraints=pc,
+        mean_constraints=[mdc, rot],
+    )
+
+    cfg_trncg = SolverConfig(
+        method="trust-ncg", display=False,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+    )
+    r_trncg = RelaxationSolver(cfg_trncg).solve(**common)
+
+    cfg_two = SolverConfig(
+        method="two_phase", display=False,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+        max_iter_discover=100, gtol_discover_factor=20.0,
+    )
+    r_two = RelaxationSolver(cfg_two).solve(**common)
+
+    # The polish phase shares trust-ncg's stopping rule, so the final
+    # energies should agree on this convex case.
+    rel_dE = (
+        abs(r_two.total_energy - r_trncg.total_energy)
+        / abs(r_trncg.total_energy)
+    )
+    assert rel_dE < 1e-3, (
+        f"two_phase vs trust-ncg energies disagree on convex case: "
+        f"E_trncg={r_trncg.total_energy:.4e}, "
+        f"E_two={r_two.total_energy:.4e}, rel={rel_dE:.2e}"
+    )
+
+    # Constraints must still be satisfied at the end.
+    B, t = stack_mean_constraints([mdc, rot], conv, pinned_constraints=pc)
+    c = B @ r_two.optimizer_result.x - t
+    assert np.linalg.norm(c) < 1e-6, (
+        f"two_phase violates mean constraints: ||c|| = "
+        f"{np.linalg.norm(c):.2e}"
+    )
+
+
 def test_mean_constraint_iterative_with_rotation_only():
     """Iterative path with a single (k=1) constraint (rotation only) —
     exercises the rank-1 projector edge case."""

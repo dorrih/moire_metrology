@@ -69,6 +69,20 @@ class SolverConfig:
           in the paper MATLAB code.
         - ``'L-BFGS-B'`` -- Gradient-only quasi-Newton via
           scipy.optimize.minimize. Slower convergence but no Hessian needed.
+          Supports the same mean-constraint API as ``'newton'`` /
+          ``'trust-ncg'`` via null-space projection. Empirically lands
+          in qualitatively different basins than ``'trust-ncg'`` from
+          the same U=0 initial guess in multi-basin landscapes (e.g.
+          low-twist TDBG with AB/BA asymmetry); use this for discovery
+          when you suspect the U=0 IC sits near a saddle.
+        - ``'two_phase'`` -- L-BFGS-B *discovery* (using ``max_iter_discover``
+          and gradient tolerance ``gtol_discover_factor * gtol``) followed
+          by ``trust-ncg`` *polish* (using the standard ``max_iter`` /
+          ``gtol`` / ``rtol`` / ``etol`` criteria) from the discovery
+          output. Combines L-BFGS-B's basin-selection behaviour with
+          trust-ncg's tight 2nd-order convergence. Recommended for
+          low-twist relaxation when both basin choice and high precision
+          matter.
     max_iter : int
         Maximum number of optimizer iterations.
     gtol : float
@@ -141,6 +155,13 @@ class SolverConfig:
     linear_solver_tol: float = 1e-6
     linear_solver_maxiter: int = 200
     elastic_strain: str = "cauchy"
+    # Two-phase solver parameters (used when method='two_phase').
+    # The discovery phase (L-BFGS-B) exits on either max_iter_discover
+    # iterations or ||grad|| < gtol_discover_factor * gtol, whichever is
+    # first.  The polish phase (trust-ncg) then runs from the discovery
+    # output using the standard max_iter / gtol / rtol / etol criteria.
+    max_iter_discover: int = 300
+    gtol_discover_factor: float = 10.0
 
 
 def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
@@ -740,6 +761,71 @@ def _lbfgs_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     }
 
 
+def _two_phase_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
+                     max_iter: int, gtol: float, rtol: float,
+                     etol: float, etol_window: int,
+                     display: bool,
+                     max_iter_discover: int = 300,
+                     gtol_discover_factor: float = 10.0,
+                     mean_B: "sparse.csr_matrix | None" = None,
+                     mean_t: "np.ndarray | None" = None) -> dict:
+    """Two-phase relaxation: L-BFGS-B discovery → trust-ncg polish.
+
+    Phase 1 (discovery, :func:`_lbfgs_solve`): run L-BFGS-B from ``U0``
+    with a loosened gradient target ``gtol_discover = gtol_discover_factor
+    * gtol`` and iteration budget ``max_iter_discover``. The smoothed
+    first-order trajectory typically lands in a *different* local basin
+    than aggressive 2nd-order methods would from the same U=0 IC, which
+    is desirable for multi-basin landscapes.
+
+    Phase 2 (polish, :func:`_trust_ncg_solve`): continue from the
+    discovery output using the standard ``max_iter`` / ``gtol`` / ``rtol``
+    / ``etol`` criteria; trust-ncg drives the gradient to its tight
+    target inside whichever basin discovery found.
+
+    Returns the same dict shape as the single-phase solvers, with
+    ``nit`` summing both phases and ``message`` reporting the polish
+    phase's exit reason.
+    """
+    gtol_discover = gtol_discover_factor * gtol
+
+    if display:
+        print(
+            f"  two_phase: phase 1 (L-BFGS-B discovery), "
+            f"max_iter={max_iter_discover}, gtol={gtol_discover:.2e}"
+        )
+    res1 = _lbfgs_solve(
+        energy_func, U0, max_iter_discover, gtol_discover, rtol,
+        etol, etol_window, display,
+        mean_B=mean_B, mean_t=mean_t,
+    )
+    if display:
+        print(
+            f"  two_phase: phase 1 done at E = {res1['fun']:.4f}, "
+            f"handing off to trust-ncg"
+        )
+        print(
+            f"  two_phase: phase 2 (trust-ncg polish), "
+            f"max_iter={max_iter}, gtol={gtol:.2e}"
+        )
+    res2 = _trust_ncg_solve(
+        energy_func, res1["x"], max_iter, gtol, rtol,
+        etol, etol_window, display,
+        mean_B=mean_B, mean_t=mean_t,
+    )
+
+    return {
+        "x": res2["x"], "fun": res2["fun"], "jac": res2["jac"],
+        "nit": res1["nit"] + res2["nit"],
+        "nfev": res1["nfev"] + res2["nfev"],
+        "message": (
+            f"two_phase: discovery {res1['nit']} iters → polish: "
+            f"{res2['message']}"
+        ),
+        "success": bool(res2["success"]),
+    }
+
+
 def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                            max_iter: int, gtol: float, rtol: float,
                            beta: float,
@@ -1287,8 +1373,11 @@ class RelaxationSolver:
             t_start = perf_counter()
 
         # Run optimizer
-        if cfg.method in ("newton", "trust-ncg", "L-BFGS-B", "pseudo_dynamics"):
-            if cfg.method in ("newton", "trust-ncg", "L-BFGS-B"):
+        SOLVERS_WITH_MEAN_CONSTRAINTS = (
+            "newton", "trust-ncg", "L-BFGS-B", "two_phase",
+        )
+        if cfg.method in SOLVERS_WITH_MEAN_CONSTRAINTS + ("pseudo_dynamics",):
+            if cfg.method in SOLVERS_WITH_MEAN_CONSTRAINTS:
                 # Assemble mean-constraint matrix in free-DOF space (if any).
                 mean_B = mean_t = None
                 if mean_constraints:
@@ -1311,17 +1400,26 @@ class RelaxationSolver:
                         cfg.etol, cfg.etol_window, cfg.display,
                         mean_B=mean_B, mean_t=mean_t,
                     )
-                else:   # L-BFGS-B
+                elif cfg.method == "L-BFGS-B":
                     res = _lbfgs_solve(
                         energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
                         cfg.etol, cfg.etol_window, cfg.display,
+                        mean_B=mean_B, mean_t=mean_t,
+                    )
+                else:   # two_phase
+                    res = _two_phase_solve(
+                        energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
+                        cfg.etol, cfg.etol_window, cfg.display,
+                        max_iter_discover=cfg.max_iter_discover,
+                        gtol_discover_factor=cfg.gtol_discover_factor,
                         mean_B=mean_B, mean_t=mean_t,
                     )
             else:
                 if mean_constraints:
                     raise NotImplementedError(
                         "mean_constraints are currently only supported "
-                        "with method='newton', 'trust-ncg', or 'L-BFGS-B'"
+                        "with method='newton', 'trust-ncg', 'L-BFGS-B', "
+                        "or 'two_phase'"
                     )
                 res = _pseudo_dynamics_solve(
                     energy_func, U0, cfg.max_iter, cfg.gtol, cfg.rtol,
@@ -1343,7 +1441,8 @@ class RelaxationSolver:
         else:
             raise ValueError(
                 f"Unknown method {cfg.method!r}; supported: "
-                f"'newton', 'trust-ncg', 'L-BFGS-B', 'pseudo_dynamics'"
+                f"'newton', 'trust-ncg', 'L-BFGS-B', 'two_phase', "
+                f"'pseudo_dynamics'"
             )
 
         if cfg.display:
