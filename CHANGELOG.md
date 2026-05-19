@@ -43,17 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Hessian through matrix-free Hessian-vector products
   (`energy_func.hessp`). Unlike the existing `method="newton"`
   (Levenberg-Marquardt damped Newton on an eigenvalue-flipped *modified*
-  Hessian), the new method can follow negative-curvature directions and
-  step across saddles between local minima — essential when the
-  problem may have multiple nearby basins (e.g., low-twist periodic
-  relaxation where the energy landscape can host both single- and
-  double-domain-wall topologies as stationary points). Supports
-  homogeneous `mean_constraints` (`B U = 0`, satisfied by
-  `PeriodicPairConstraint`, `RotationConstraint`, and
+  Hessian), the new method follows the true unmodified Hessian and can
+  step along negative-curvature directions when they arise on the
+  inner-CG path. Supports homogeneous `mean_constraints` (`B U = 0`,
+  satisfied by `PeriodicPairConstraint`, `RotationConstraint`, and
   `MeanDisplacementConstraint` with default target) via null-space
-  projection. Use this method when you suspect the LM-modified-Newton
-  is converging to a higher-energy local minimum rather than the global
-  one for your problem.
+  projection.
 
 - **`mean_constraints` now work with `linear_solver="iterative"`** via
   a null-space (projection) method. Each Newton step decomposes
@@ -73,23 +68,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   problems with O(10⁴) constraint rows from per-vertex pairings stay
   within memory budget). Previously the L-BFGS-B path fell back to
   raw `scipy.optimize.minimize` and refused `mean_constraints` with
-  `NotImplementedError`. L-BFGS-B's gradient-only quasi-Newton
-  trajectory often lands in qualitatively different basins from
-  `'trust-ncg'` on the same U=0 initial guess in multi-basin
-  landscapes — use this method for deliberate basin discovery when
-  the U=0 IC sits near a saddle.
+  `NotImplementedError`.
 
-- **`examples/tdbg_low_twist_basin_selection.py`** — pedagogical demo
-  showing that on the same TDBG-DFT-D2 problem at θ=0.02° (hex
-  Wigner-Seitz periodic cell, ε=0 / fix_bottom), `method='trust-ncg'`
-  from U=0 settles into a higher-energy "single domain wall" (SDW)
-  basin (straight triangular DW network), while `method='L-BFGS-B'`
-  from the same U=0 lands in a lower-energy "2DW" basin (curved
-  soap-foam topology around circular AB/BA domains). Same energy
-  functional, same IC, different basin — the difference is entirely
-  in the solver trajectory. `method='two_phase'` recovers the 2DW
-  basin with polished gradient. Runs in ~8 minutes; renders a
-  3-panel V_GSFE + |Δu| comparison.
+- **`examples/tdbg_low_twist_relaxation.py`** — TDBG-DFT-D2 relaxation
+  at θ = 0.02° on a hexagonal Wigner-Seitz periodic cell with the
+  bottom flake pinned (the published TDBG MATLAB-code convention).
+  Renders the relaxed "double domain wall" (2DW) network: circular
+  AB / BA domains bounded by curved paired walls, characteristic of
+  the non-zero ``c4, c5`` (AB ↔ BA asymmetric) GSFE terms of TDBG.
+  Uses `method='two_phase'`; runs in ~7–8 min at ``pixel_size = 4`` nm.
 
 - **`SolverConfig(method="two_phase")`** — a discovery + polish
   pipeline that runs `'L-BFGS-B'` first with a loosened gradient
@@ -101,22 +88,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields: `max_iter_discover: int = 300`,
   `gtol_discover_factor: float = 10.0`.
 
+### Fixed
+
+- **GSFE c4 / c5 derivative sign errors.** Five sign errors were
+  corrected in `GSFESurface.dw`, `d2w2`, and `d2vw` — specifically in
+  the ``c4 * sin(v + w)``, ``c5 * cos(2w)``, ``c5 * sin(2w)``, and
+  ``c5 * sin(2v + 2w)`` contributions. The bug affected gradient and
+  Hessian (both sparse-assembled and matrix-free hessp) for any GSFE
+  with non-zero ``c4, c5`` (i.e. interfaces with broken AB ↔ BA
+  symmetry: TDBG, hBN homobilayers, graphene/hBN, TMD heterobilayers).
+  TBG and any centrosymmetric homobilayer with ``c4 = c5 = 0`` were
+  unaffected. The error systematically biased the relaxation trajectory
+  toward a wrong stacking-direction basin; for TDBG at θ = 0.02° this
+  showed up as the relaxation landing in a higher-energy single-domain-
+  wall network rather than the lower-energy double-domain-wall (2DW)
+  topology. Fix verified by FD-vs-analytical comparison and reproduces
+  the published TDBG MATLAB reference 2DW state at θ = 0.02°. Existing
+  test coverage in `tests/test_gsfe.py` was extended with a new
+  `TestGSFEDerivativesAsymmetric` class that exercises the c4 / c5
+  paths with non-zero coefficients (which would have caught all five
+  sign errors).
+
 ### Changed
 
 - **Default `SolverConfig.method` is now `'trust-ncg'` instead of
-  `'newton'`.** The Levenberg-Marquardt damped Newton with
-  eigenvalue-flipped modified Hessian (`method='newton'`) cannot
-  follow negative-curvature directions and commits early to whichever
-  basin is locally convex-nearest, with no recourse to escape. Empirical
-  characterization in low-twist TDBG (where single-DW and 2DW
-  topologies are both valid stationary states) showed this can leave
-  the iterate in a higher-energy local minimum rather than the global
-  one. `'trust-ncg'` uses the unmodified Hessian via matrix-free
-  Hessian-vector products and can step across saddles when negative
-  curvature is encountered along the inner-CG path. Existing code that
-  explicitly sets `method='newton'` is unaffected; code that relies on
-  the default will now use `'trust-ncg'`. Strengthened the method
-  docstrings to call out basin-selection caveats for each method.
+  `'newton'`.** The Levenberg-Marquardt damped Newton with the
+  eigenvalue-flipped modified Hessian (`method='newton'`) cannot follow
+  negative-curvature directions and converges to whichever local
+  minimum is reached by purely convex steps from the initial guess.
+  `'trust-ncg'` uses the unmodified Hessian via matrix-free
+  Hessian-vector products and can step along negative-curvature
+  directions when they arise on the inner-CG path, which makes it a
+  more robust default 2nd-order solver. Existing code that explicitly
+  sets `method='newton'` is unaffected; code that relies on the default
+  will now use `'trust-ncg'`.
 
 ## [0.7.1] - 2026-04-13
 
