@@ -84,7 +84,9 @@ def filter_sliver_triangles(mesh, pixel: float) -> None:
     """Drop near-colinear (degenerate) triangles from the Delaunay output."""
     pts = mesh.points.T
     tri = mesh.triangles
-    A = pts[tri[:, 0]]; B = pts[tri[:, 1]]; C = pts[tri[:, 2]]
+    A = pts[tri[:, 0]]
+    B = pts[tri[:, 1]]
+    C = pts[tri[:, 2]]
     det = (B[:, 0] - A[:, 0]) * (C[:, 1] - A[:, 1]) \
         - (B[:, 1] - A[:, 1]) * (C[:, 0] - A[:, 0])
     bad = np.abs(det) < 1e-6 * pixel**2
@@ -126,7 +128,8 @@ def render(result, theta_deg: float, save_path: Path) -> None:
         cmap="magma", vmin=0, vmax=vmax_gsfe,
     )
     axes[0].set_aspect("equal")
-    axes[0].set_xlabel("x [nm]"); axes[0].set_ylabel("y [nm]")
+    axes[0].set_xlabel("x [nm]")
+    axes[0].set_ylabel("y [nm]")
     axes[0].set_title(f"V_GSFE  [meV / nm²]   (vmax = {vmax_gsfe:.1f})")
     plt.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
 
@@ -135,7 +138,8 @@ def render(result, theta_deg: float, save_path: Path) -> None:
         cmap="magma", vmin=0, vmax=vmax_du,
     )
     axes[1].set_aspect("equal")
-    axes[1].set_xlabel("x [nm]"); axes[1].set_ylabel("y [nm]")
+    axes[1].set_xlabel("x [nm]")
+    axes[1].set_ylabel("y [nm]")
     axes[1].set_title(f"|Δu|  [nm]   (vmax = {vmax_du:.2f})")
     plt.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.04)
 

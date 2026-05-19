@@ -185,7 +185,8 @@ class TestGSFEDerivativesAsymmetric:
                        (2 * np.pi / 3, 2 * np.pi / 3),
                        (-2 * np.pi / 3, -2 * np.pi / 3),
                        (0.7, 1.3)]:
-            v = np.array(v0); w = np.array(w0)
+            v = np.array(v0)
+            w = np.array(w0)
             # Gradients via central FD of V
             dv_fd = (gsfe(v + h, w) - gsfe(v - h, w)) / (2 * h)
             dw_fd = (gsfe(v, w + h) - gsfe(v, w - h)) / (2 * h)
