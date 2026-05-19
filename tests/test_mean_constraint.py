@@ -337,6 +337,198 @@ def test_trust_ncg_with_mean_constraints():
     )
 
 
+def test_lbfgs_with_mean_constraints():
+    """method='L-BFGS-B' should honor mean_constraints via the same
+    null-space projection used by trust-ncg.  Validate against the
+    Newton reference on a convex case (matches behavior in
+    :func:`test_trust_ncg_with_mean_constraints`)."""
+    mesh, _, _, conv = _build_finite(theta=1.5, n_cells=2, pixel_size=1.2)
+    Nv = conv.n_vertices
+    pinned = {Nv + v for v in range(Nv)} | {3 * Nv + v for v in range(Nv)}
+    pi = np.array(sorted(pinned), dtype=int)
+    fi = np.array(sorted(set(range(conv.n_sol)) - pinned), dtype=int)
+    pc = PinnedConstraints(fi, pi, np.zeros(len(pi)), len(fi), conv.n_sol)
+
+    mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
+    rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
+
+    common = dict(
+        moire_interface=GRAPHENE_GRAPHENE,
+        theta_twist=1.5, delta=0.0,
+        mesh=mesh, constraints=pc,
+        mean_constraints=[mdc, rot],
+    )
+
+    cfg_newton = SolverConfig(
+        method="newton", linear_solver="direct", display=False,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+    )
+    r_newton = RelaxationSolver(cfg_newton).solve(**common)
+
+    cfg_lbfgs = SolverConfig(
+        method="L-BFGS-B", display=False,
+        elastic_strain="cauchy", max_iter=500,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+    )
+    r_lbfgs = RelaxationSolver(cfg_lbfgs).solve(**common)
+
+    # Energies should agree (convex case): L-BFGS-B's first-order steps
+    # do reach the same basin as Newton here.
+    rel_dE = (
+        abs(r_lbfgs.total_energy - r_newton.total_energy)
+        / abs(r_newton.total_energy)
+    )
+    assert rel_dE < 1e-3, (
+        f"L-BFGS-B vs newton (with mean_constraints) energies disagree: "
+        f"E_newton={r_newton.total_energy:.4e}, "
+        f"E_lbfgs={r_lbfgs.total_energy:.4e}, rel={rel_dE:.2e}"
+    )
+
+    # The null-space projection must satisfy the constraints exactly.
+    B, t = stack_mean_constraints([mdc, rot], conv, pinned_constraints=pc)
+    c_lbfgs = B @ r_lbfgs.optimizer_result.x - t
+    assert np.linalg.norm(c_lbfgs) < 1e-6, (
+        f"L-BFGS-B violates mean constraints: ||c|| = "
+        f"{np.linalg.norm(c_lbfgs):.2e}"
+    )
+
+
+def test_lbfgs_with_periodic_pair_constraint():
+    """method='L-BFGS-B' with a PeriodicPairConstraint must produce a
+    solution whose paired DOFs agree to machine precision (the null-
+    space projection's defining property).  This exercises the path
+    used by hex-Wigner-Seitz periodic-cell relaxations."""
+    from moire_metrology import (
+        HexagonalLattice, MoireGeometry, PeriodicPairConstraint,
+        generate_hex_periodic_mesh, identify_hex_periodic_boundary,
+    )
+
+    lat = HexagonalLattice(alpha=GRAPHENE_GRAPHENE.bottom.lattice_constant)
+    geom = MoireGeometry(lat, theta_twist=2.0, delta=0.0)
+    # Use a mesh fine enough that the relaxation has degrees of freedom
+    # to move (a too-coarse hex puts almost all vertices on the boundary
+    # or corner-pinned positions). pixel_size=1.0 nm at θ=2° gives
+    # ~100 interior vertices, plenty to discriminate relaxed vs unrelaxed.
+    mesh = generate_hex_periodic_mesh(geom, pixel_size=1.0)
+    info = identify_hex_periodic_boundary(mesh)
+
+    # Pin all 6 corners on both layers (gauge fix).
+    Nv = mesh.n_vertices
+    n_lay = 2
+    n_full = 2 * n_lay * Nv
+    pinned = set()
+    for layer in range(n_lay):
+        ox = layer * Nv
+        oy = n_lay * Nv + layer * Nv
+        for v in info["corners"]:
+            pinned.add(ox + int(v))
+            pinned.add(oy + int(v))
+    pinned_idx = np.array(sorted(pinned), dtype=int)
+    free_idx = np.setdiff1d(np.arange(n_full), pinned_idx, assume_unique=True)
+    pc = PinnedConstraints(
+        free_idx, pinned_idx, np.zeros(len(pinned_idx)),
+        len(free_idx), n_full,
+    )
+
+    # Three PeriodicPairConstraint instances per layer (one per opposite-edge
+    # pair). Drop pairs touching corners (those are already pinned at 0).
+    corner_set = set(info["corners"].tolist())
+    mean_cs = []
+    for layer in range(n_lay):
+        for pair in info["pairs"]:
+            src = pair["src_indices"]
+            dst = pair["dst_indices"]
+            keep = ~(np.isin(src, list(corner_set))
+                     | np.isin(dst, list(corner_set)))
+            pairs_arr = np.column_stack([src[keep], dst[keep]])
+            mean_cs.append(
+                PeriodicPairConstraint(layer_idx=layer, pairs=pairs_arr)
+            )
+
+    cfg = SolverConfig(
+        method="L-BFGS-B", display=False,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-3, rtol=1e-4, etol=1e-8, etol_window=10,
+    )
+    result = RelaxationSolver(cfg).solve(
+        moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0, delta=0.0,
+        mesh=mesh, constraints=pc, mean_constraints=mean_cs,
+    )
+
+    # Solution should reduce energy from U=0.
+    assert result.total_energy < result.unrelaxed_energy
+
+    # And paired DOFs must agree (the null-space projection's job).
+    conv_for_check = Discretization(mesh, geom).build_conversion_matrices(
+        nlayer1=1, nlayer2=1,
+    )
+    B, t = stack_mean_constraints(mean_cs, conv_for_check, pinned_constraints=pc)
+    c = B @ result.optimizer_result.x - t
+    assert np.linalg.norm(c) < 1e-6, (
+        f"L-BFGS-B violates periodic pairing: ||c|| = "
+        f"{np.linalg.norm(c):.2e}"
+    )
+
+
+def test_two_phase_with_mean_constraints():
+    """method='two_phase' (L-BFGS-B discovery → trust-ncg polish)
+    should converge with mean_constraints and produce an energy at
+    least as low as the single-phase trust-ncg result on a convex
+    case (polish phase has the same final tolerance)."""
+    mesh, _, _, conv = _build_finite(theta=1.5, n_cells=2, pixel_size=1.2)
+    Nv = conv.n_vertices
+    pinned = {Nv + v for v in range(Nv)} | {3 * Nv + v for v in range(Nv)}
+    pi = np.array(sorted(pinned), dtype=int)
+    fi = np.array(sorted(set(range(conv.n_sol)) - pinned), dtype=int)
+    pc = PinnedConstraints(fi, pi, np.zeros(len(pi)), len(fi), conv.n_sol)
+
+    mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
+    rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
+
+    common = dict(
+        moire_interface=GRAPHENE_GRAPHENE,
+        theta_twist=1.5, delta=0.0,
+        mesh=mesh, constraints=pc,
+        mean_constraints=[mdc, rot],
+    )
+
+    cfg_trncg = SolverConfig(
+        method="trust-ncg", display=False,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+    )
+    r_trncg = RelaxationSolver(cfg_trncg).solve(**common)
+
+    cfg_two = SolverConfig(
+        method="two_phase", display=False,
+        elastic_strain="cauchy", max_iter=200,
+        gtol=1e-4, rtol=1e-6, etol=1e-9, etol_window=10,
+        max_iter_discover=100, gtol_discover_factor=20.0,
+    )
+    r_two = RelaxationSolver(cfg_two).solve(**common)
+
+    # The polish phase shares trust-ncg's stopping rule, so the final
+    # energies should agree on this convex case.
+    rel_dE = (
+        abs(r_two.total_energy - r_trncg.total_energy)
+        / abs(r_trncg.total_energy)
+    )
+    assert rel_dE < 1e-3, (
+        f"two_phase vs trust-ncg energies disagree on convex case: "
+        f"E_trncg={r_trncg.total_energy:.4e}, "
+        f"E_two={r_two.total_energy:.4e}, rel={rel_dE:.2e}"
+    )
+
+    # Constraints must still be satisfied at the end.
+    B, t = stack_mean_constraints([mdc, rot], conv, pinned_constraints=pc)
+    c = B @ r_two.optimizer_result.x - t
+    assert np.linalg.norm(c) < 1e-6, (
+        f"two_phase violates mean constraints: ||c|| = "
+        f"{np.linalg.norm(c):.2e}"
+    )
+
+
 def test_mean_constraint_iterative_with_rotation_only():
     """Iterative path with a single (k=1) constraint (rotation only) —
     exercises the rank-1 projector edge case."""

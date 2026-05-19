@@ -64,8 +64,8 @@ class GSFESurface:
             c1 * (-sin(w) - sin(v + w))
             + c2 * (-2 * sin(v + 2 * w) + sin(v - w) - sin(2 * v + w))
             + c3 * (-2 * sin(2 * w) - 2 * sin(2 * v + 2 * w))
-            + c4 * (cos(w) + cos(v + w))
-            + c5 * (2 * cos(2 * v + 2 * w) + 2 * cos(2 * w))
+            + c4 * (cos(w) - cos(v + w))
+            + c5 * (2 * cos(2 * v + 2 * w) - 2 * cos(2 * w))
         )
 
     def d2v2(self, v: np.ndarray, w: np.ndarray) -> np.ndarray:
@@ -86,8 +86,8 @@ class GSFESurface:
             c1 * (-cos(w) - cos(v + w))
             + c2 * (-4 * cos(v + 2 * w) - cos(v - w) - cos(2 * v + w))
             + c3 * (-4 * cos(2 * w) - 4 * cos(2 * v + 2 * w))
-            + c4 * (-sin(w) - sin(v + w))
-            + c5 * (-4 * sin(2 * v + 2 * w) - 4 * sin(2 * w))
+            + c4 * (-sin(w) + sin(v + w))
+            + c5 * (-4 * sin(2 * v + 2 * w) + 4 * sin(2 * w))
         )
 
     def d2vw(self, v: np.ndarray, w: np.ndarray) -> np.ndarray:
@@ -98,7 +98,7 @@ class GSFESurface:
             + c2 * (-2 * cos(v + 2 * w) + cos(v - w) - 2 * cos(2 * v + w))
             + c3 * (-4 * cos(2 * v + 2 * w))
             + c4 * (sin(v + w))
-            + c5 * (4 * sin(2 * v + 2 * w))
+            + c5 * (-4 * sin(2 * v + 2 * w))
         )
 
     @property
