@@ -1190,6 +1190,7 @@ class RelaxationSolver:
         n_bottom: int = 1,
         theta_twist: float = 0.0,
         delta: float | None = None,
+        epsilon: np.ndarray | None = None,
         theta0: float = 0.0,
         initial_solution: np.ndarray | None = None,
         constraints: "PinnedConstraints | None" = None,
@@ -1223,7 +1224,16 @@ class RelaxationSolver:
         theta_twist : float
             Twist angle in degrees.
         delta : float or None
-            Lattice mismatch. If None, computed from the two materials.
+            Isotropic lattice mismatch shortcut. If None, computed from
+            the two materials' lattice constants. Ignored when
+            ``epsilon`` is supplied.
+        epsilon : ndarray (2, 2) or None
+            General heterostrain tensor of layer 2 (overrides scalar
+            ``delta``). Set this to model anisotropic / shear
+            heterostrain — e.g. uniaxial strain that produces 2DWs
+            in otherwise-degenerate TBG. See
+            :class:`moire_metrology.lattice.MoireGeometry` for the
+            tensor convention.
         theta0 : float
             Lattice orientation angle in degrees.
         initial_solution : ndarray or None
@@ -1289,11 +1299,22 @@ class RelaxationSolver:
             delta = material1.lattice_constant / material2.lattice_constant - 1.0
 
         lattice = HexagonalLattice(alpha=material2.lattice_constant, theta0=theta0)
-        geometry = MoireGeometry(lattice, theta_twist=theta_twist, delta=delta)
+        if epsilon is not None:
+            geometry = MoireGeometry(
+                lattice, theta_twist=theta_twist, epsilon=epsilon)
+        else:
+            geometry = MoireGeometry(
+                lattice, theta_twist=theta_twist, delta=delta)
 
         if cfg.display:
             print(f"Moire wavelength: {geometry.wavelength:.2f} nm")
-            print(f"Twist angle: {theta_twist:.4f} deg, delta: {delta:.6f}")
+            if epsilon is not None:
+                eps_arr = np.asarray(epsilon, dtype=float)
+                print(f"Twist angle: {theta_twist:.4f} deg, "
+                      f"epsilon = [[{eps_arr[0,0]:+.6f},{eps_arr[0,1]:+.6f}],"
+                      f"[{eps_arr[1,0]:+.6f},{eps_arr[1,1]:+.6f}]]")
+            else:
+                print(f"Twist angle: {theta_twist:.4f} deg, delta: {delta:.6f}")
 
         if mesh is None:
             mesh = MoireMesh.generate(
