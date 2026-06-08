@@ -376,3 +376,58 @@ class TestConvergenceCriteria:
         )
         assert not result.converged
         assert "max iterations" in result.convergence_message
+
+
+class TestEpsilonKwarg:
+    """The `epsilon` kwarg on solve() must actually reach the internal
+    MoireGeometry and influence the relaxed state. Without this, scalar
+    `delta` is used silently and any caller relying on anisotropic
+    strain gets a wrong answer that happens to match the unstrained
+    case (the bug we hit in the 2026-06-08 strained-TBG sweep)."""
+
+    def _common_cfg(self):
+        return SolverConfig(method="newton", pixel_size=1.5,
+                            max_iter=60, gtol=1e-3,
+                            display=False, min_mesh_points=30)
+
+    def test_isotropic_epsilon_matches_scalar_delta(self):
+        """epsilon = delta * I should give the same relaxed energy as
+        passing scalar delta. Sanity check: backward-compat path."""
+        cfg = self._common_cfg()
+        delta = 0.002
+        # Same lattice constant on both sides → solver default delta = 0,
+        # so we override with our test value.
+        r_scalar = RelaxationSolver(cfg).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0, delta=delta,
+        )
+        r_tensor = RelaxationSolver(cfg).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+            epsilon=delta * np.eye(2),
+        )
+        # Energies should match closely (same physical problem).
+        assert abs(r_scalar.total_energy - r_tensor.total_energy) \
+            / max(abs(r_scalar.total_energy), 1e-12) < 1e-3
+
+    def test_anisotropic_epsilon_changes_energy(self):
+        """Uniaxial epsilon should give a *different* relaxed energy
+        than the isotropic (or zero) case. Without the solver wiring
+        the energies would be bit-identical regardless of epsilon."""
+        cfg = self._common_cfg()
+        r_iso = RelaxationSolver(cfg).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0, delta=0.0,
+        )
+        r_ani = RelaxationSolver(cfg).solve(
+            moire_interface=GRAPHENE_GRAPHENE, theta_twist=2.0,
+            epsilon=np.array([[0.005, 0.0], [0.0, 0.0]]),
+        )
+        # The anisotropic case has a different moire pattern → different
+        # relaxed total energy. The threshold (1%) is generous; the
+        # bug would give exactly 0% difference (bit-identical).
+        rel_diff = abs(r_iso.total_energy - r_ani.total_energy) \
+            / max(abs(r_iso.total_energy), 1e-12)
+        assert rel_diff > 0.01, (
+            f"epsilon kwarg appears to have no effect: "
+            f"E(iso) = {r_iso.total_energy:.4f}, "
+            f"E(ani) = {r_ani.total_energy:.4f}, "
+            f"rel diff = {rel_diff:.3e}"
+        )
