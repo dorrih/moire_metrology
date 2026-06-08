@@ -1,6 +1,7 @@
 """Tests for lattice geometry and moire calculations."""
 
 import numpy as np
+import pytest
 
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry, rotation_matrix
 
@@ -94,3 +95,45 @@ class TestMoireGeometry:
         geom = MoireGeometry(lat, theta_twist=0.0, delta=delta)
         expected = alpha / delta
         np.testing.assert_allclose(geom.wavelength, expected, rtol=0.1)
+
+    def test_anisotropic_epsilon_breaks_symmetry(self):
+        """Anisotropic heterostrain (diag(eps_x, 0)) makes |V1| != |V2|.
+
+        The pure-twist case is isotropic (|V1| == |V2|); applying
+        uniaxial strain along x at small twist should produce a
+        large anisotropy ratio.
+        """
+        alpha = 0.246
+        lat = HexagonalLattice(alpha=alpha)
+        # Pure twist baseline: V1 and V2 same magnitude.
+        g_iso = MoireGeometry(lat, theta_twist=0.01)
+        np.testing.assert_allclose(
+            np.linalg.norm(g_iso.V1), np.linalg.norm(g_iso.V2), rtol=1e-10)
+        # Anisotropic: ε along x only.
+        eps = np.array([[0.001, 0.0], [0.0, 0.0]])
+        g_ani = MoireGeometry(lat, theta_twist=0.01, epsilon=eps)
+        v1_mag = np.linalg.norm(g_ani.V1)
+        v2_mag = np.linalg.norm(g_ani.V2)
+        assert abs(v1_mag - v2_mag) / max(v1_mag, v2_mag) > 0.5, \
+            "Anisotropic epsilon should noticeably break V1/V2 symmetry"
+
+    def test_epsilon_isotropic_matches_scalar_delta(self):
+        """epsilon = delta*I should give identical geometry to scalar delta."""
+        alpha = 0.246
+        delta = 0.005
+        lat = HexagonalLattice(alpha=alpha)
+        g_scalar = MoireGeometry(lat, theta_twist=0.5, delta=delta)
+        g_tensor = MoireGeometry(
+            lat, theta_twist=0.5, epsilon=delta * np.eye(2))
+        np.testing.assert_allclose(g_scalar.V1, g_tensor.V1, atol=1e-12)
+        np.testing.assert_allclose(g_scalar.V2, g_tensor.V2, atol=1e-12)
+        np.testing.assert_allclose(g_scalar.Mu2, g_tensor.Mu2, atol=1e-12)
+        # delta property should round-trip the isotropic case.
+        assert g_tensor.delta == delta
+
+    def test_epsilon_rejects_wrong_shape(self):
+        """A non-(2,2) epsilon must raise ValueError at construction."""
+        lat = HexagonalLattice(alpha=0.246)
+        with pytest.raises(ValueError):
+            MoireGeometry(lat, theta_twist=0.01,
+                          epsilon=np.array([0.001, 0.0]))

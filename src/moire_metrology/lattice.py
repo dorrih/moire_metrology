@@ -69,21 +69,62 @@ class HexagonalLattice:
 class MoireGeometry:
     """Geometry of a moire superlattice from two hexagonal layers.
 
+    Supports both isotropic lattice mismatch (scalar ``delta``) and
+    anisotropic heterostrain (2x2 strain tensor ``epsilon``). With
+    ``epsilon`` non-isotropic, the moire pattern loses its hexagonal
+    symmetry and exhibits anisotropic wavelengths along V1 vs V2 —
+    physically corresponding to uniaxial / shear heterostrain of
+    layer 2 relative to layer 1.
+
     Parameters
     ----------
     lattice : HexagonalLattice
         The reference lattice (layer 2 / substrate).
     theta_twist : float
         Twist angle in degrees between the two layers.
-    delta : float
-        Lattice mismatch: (alpha_layer1 / alpha_layer2) - 1.
-        For homostructures (e.g., TBLG), delta = 0.
+    delta : float, optional
+        Isotropic lattice mismatch shortcut: (alpha_layer1 /
+        alpha_layer2) - 1. Equivalent to ``epsilon = delta * I``.
+        Ignored if ``epsilon`` is provided. Default 0 (homostructure).
+    epsilon : array-like (2, 2), optional
+        General heterostrain tensor of layer 2. Replaces the scalar
+        ``delta`` for anisotropic / shear strain. If both are given,
+        ``epsilon`` takes precedence and a warning is issued only
+        when scalar ``delta`` is non-zero.
+
+    Notes
+    -----
+    Backward compatibility: callers that only pass scalar ``delta``
+    are unaffected. ``self.delta`` continues to expose the isotropic
+    projection (mean of the diagonal of ``epsilon``); use
+    ``self.epsilon`` for the full tensor.
     """
 
-    def __init__(self, lattice: HexagonalLattice, theta_twist: float, delta: float = 0.0):
+    def __init__(self, lattice: HexagonalLattice, theta_twist: float,
+                 delta: float = 0.0, *, epsilon: np.ndarray | None = None):
         self.lattice = lattice
         self.theta_twist = theta_twist
-        self.delta = delta
+        if epsilon is None:
+            # Backward-compat: scalar delta → isotropic strain tensor.
+            self._epsilon = float(delta) * np.eye(2)
+        else:
+            eps = np.asarray(epsilon, dtype=float)
+            if eps.shape != (2, 2):
+                raise ValueError(
+                    f"epsilon must be a 2x2 array, got shape {eps.shape}")
+            self._epsilon = eps
+
+    @property
+    def epsilon(self) -> np.ndarray:
+        """Heterostrain tensor of layer 2 (2x2). For isotropic-only
+        callers, ``epsilon = delta * I``."""
+        return self._epsilon
+
+    @property
+    def delta(self) -> float:
+        """Isotropic projection of the heterostrain tensor (mean
+        diagonal). For full anisotropic info, use ``self.epsilon``."""
+        return float(0.5 * (self._epsilon[0, 0] + self._epsilon[1, 1]))
 
     @property
     def R_twist(self) -> np.ndarray:
@@ -92,15 +133,18 @@ class MoireGeometry:
 
     @property
     def moire_matrix(self) -> np.ndarray:
-        """Mr = R(+theta) - (1+delta)*I, shape (2,2).
+        """Mr = R(+theta) - (I + epsilon), shape (2,2).
 
         The moire vectors satisfy: [V1|V2] = inv(Mr) * B.
 
         Using R(+theta) (not R(-theta)) ensures that the stacking
         phases jump by exact integer multiples of 2*pi across V1 and
         V2, so the GSFE tiles perfectly over the moire unit cell.
+
+        For isotropic strain (default), ``epsilon = delta * I`` and
+        this reduces to the original ``R(+theta) - (1+delta)*I``.
         """
-        return self.R_twist.T - (1.0 + self.delta) * np.eye(2)
+        return self.R_twist.T - (np.eye(2) + self._epsilon)
 
     @property
     def moire_vectors(self) -> tuple[np.ndarray, np.ndarray]:
@@ -142,9 +186,12 @@ class MoireGeometry:
         For the substrate layer, displacement shifts stacking phase as:
             delta_v = Mu2[0,:] @ [ux, uy]
             delta_w = Mu2[1,:] @ [ux, uy]
+
+        For isotropic strain this reduces to ``(1+delta)*M``; for
+        general ``epsilon`` it becomes ``(I + epsilon) @ M``.
         """
         M = self.lattice.reciprocal_matrix
-        return (1.0 + self.delta) * M
+        return (np.eye(2) + self._epsilon) @ M
 
     def stacking_phases(
         self, x: np.ndarray, y: np.ndarray, ux: np.ndarray = None, uy: np.ndarray = None
