@@ -15,11 +15,51 @@ Typical usage::
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING
 
 import numpy as np
+
+
+def _maybe_checkpoint(state: dict, *, phase: str) -> None:
+    """Save state["best_x"] atomically every N solver iters, if opt-in via env.
+
+    Enable with env var CKPT_PATH=<path/to/ckpt.npz>; save cadence via CKPT_EVERY
+    (default 500 iters). Uses tmp+rename for atomicity so a SIGKILL/reboot mid-save
+    can't leave a truncated file. On natural solve completion the caller may delete
+    the ckpt file (relax.npz is authoritative). To warm-restart after a kill, rename
+    the ckpt to a `<stem>_relax.npz` and pass its stem to --ic-from (finite_flake_disk).
+    """
+    path = os.environ.get("CKPT_PATH")
+    if not path:
+        return
+    try:
+        every = int(os.environ.get("CKPT_EVERY", "500"))
+    except ValueError:
+        every = 500
+    if state["nit"] < 1 or state["nit"] % every != 0:
+        return
+    try:
+        tmp = f"{path}.tmp"
+        # Pass a file handle so np.savez doesn't auto-append ".npz" to our
+        # explicit ".tmp" path (it does that for string args). Rename is atomic.
+        with open(tmp, "wb") as fh:
+            np.savez(fh,
+                     solution_vector=state["best_x"],
+                     E_total=float(state["best_E"]),
+                     nit=int(state["nit"]),
+                     phase=str(phase))
+        os.replace(tmp, path)  # atomic on POSIX
+    except Exception as e:
+        # Never crash the solve for a checkpoint hiccup — just log to stderr.
+        try:
+            import sys
+            print(f"  [checkpoint save failed: {e}]", file=sys.stderr, flush=True)
+        except Exception:
+            pass
 from scipy import sparse
 from scipy.optimize import minimize
 from scipy.sparse.linalg import spsolve
@@ -521,6 +561,10 @@ def _trust_ncg_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
             state["best_x"] = x_proj.copy()
             state["best_E"] = E_now
             state["best_grad"] = g_proj.copy()
+        # Periodic checkpoint (opt-in via env; atomic write via tmp+rename so
+        # a kill mid-save can't leave a corrupt file). Saves best_x so a
+        # warm-restart from this state matches the "converged so far" answer.
+        _maybe_checkpoint(state, phase="polish_tncg")
         # Energy stagnation
         if len(state["recent_E"]) >= etol_window + 1:
             window = state["recent_E"][-(etol_window + 1):]
@@ -717,6 +761,8 @@ def _lbfgs_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
             state["best_x"] = x_proj.copy()
             state["best_E"] = E_now
             state["best_grad"] = g_proj.copy()
+        # Periodic checkpoint (opt-in via env, see _maybe_checkpoint docstring).
+        _maybe_checkpoint(state, phase="discovery_lbfgs")
         if len(state["recent_E"]) >= etol_window + 1:
             window = state["recent_E"][-(etol_window + 1):]
             de = (window[0] - window[-1]) / max(abs(window[-1]), 1.0)
