@@ -20,7 +20,7 @@ def setup():
 class TestDiffMatrices:
     def test_constant_field(self, setup):
         """Derivative of a constant field should be zero."""
-        mesh, geom, disc = setup
+        mesh, _geom, disc = setup
         f = np.ones(mesh.n_vertices) * 3.7
         dfx = disc.diff_mat_x @ f
         dfy = disc.diff_mat_y @ f
@@ -29,11 +29,11 @@ class TestDiffMatrices:
 
     def test_periodic_sinusoidal_x(self, setup):
         """Test d/dx of a periodic function f = sin(2*pi*s) where s is parametric coord."""
-        mesh, geom, disc = setup
+        mesh, _geom, disc = setup
         V1 = mesh.V1
         V2 = mesh.V2
         # Use parametric coordinates: r = s*V1 + t*V2
-        s, t = mesh.parametric_coords()
+        s, _t = mesh.parametric_coords()
         # f = sin(2*pi*s) is periodic in s with period 1
         f = np.sin(2 * np.pi * s)
         # df/dx: chain rule. ds/dx comes from inverting r = s*V1 + t*V2
@@ -52,10 +52,10 @@ class TestDiffMatrices:
 
     def test_periodic_sinusoidal_y(self, setup):
         """Test d/dy of a periodic function f = sin(2*pi*t)."""
-        mesh, geom, disc = setup
+        mesh, _geom, disc = setup
         V1 = mesh.V1
         V2 = mesh.V2
-        s, t = mesh.parametric_coords()
+        _s, t = mesh.parametric_coords()
         f = np.sin(2 * np.pi * t)
         A = np.column_stack([V1, V2])
         Ainv = np.linalg.inv(A)
@@ -83,20 +83,20 @@ class TestDiffMatrices:
 
 class TestAreas:
     def test_triangle_areas_positive(self, setup):
-        mesh, geom, disc = setup
+        _mesh, _geom, disc = setup
         areas = disc.triangle_areas
         assert np.all(areas > 0)
 
     def test_total_area(self, setup):
         """Total area should equal |V1 x V2| (parallelogram area)."""
-        mesh, geom, disc = setup
+        mesh, _geom, disc = setup
         V1, V2 = mesh.V1, mesh.V2
         expected = abs(V1[0] * V2[1] - V1[1] * V2[0])
         actual = disc.total_area
         np.testing.assert_allclose(actual, expected, rtol=1e-10)
 
     def test_vertex_areas_sum(self, setup):
-        mesh, geom, disc = setup
+        _mesh, _geom, disc = setup
         total_v = np.sum(disc.vertex_areas)
         total_t = np.sum(disc.triangle_areas)
         np.testing.assert_allclose(total_v, total_t, rtol=1e-10)
@@ -104,7 +104,7 @@ class TestAreas:
 
 class TestConversionMatrices:
     def test_bilayer_shapes(self, setup):
-        mesh, geom, disc = setup
+        mesh, _geom, disc = setup
         conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=1)
         Nv = mesh.n_vertices
         assert conv.n_sol == 4 * Nv  # 2 layers * 2 components * Nv
@@ -115,7 +115,7 @@ class TestConversionMatrices:
 
     def test_extraction(self, setup):
         """Conversion matrices should correctly extract displacement components."""
-        mesh, geom, disc = setup
+        mesh, _geom, disc = setup
         conv = disc.build_conversion_matrices(nlayer1=1, nlayer2=1)
         Nv = mesh.n_vertices
 

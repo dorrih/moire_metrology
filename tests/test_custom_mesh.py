@@ -16,15 +16,15 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(not HAS_MESHPY, reason="meshpy not installed")
 
-from moire_metrology import (  # noqa: E402
+from moire_metrology import (
     GRAPHENE_GRAPHENE,
     MeanDisplacementConstraint,
     RelaxationSolver,
     SolverConfig,
     generate_custom_mesh,
 )
-from moire_metrology.discretization import Discretization, PinnedConstraints  # noqa: E402
-from moire_metrology.lattice import HexagonalLattice, MoireGeometry  # noqa: E402
+from moire_metrology.discretization import Discretization, PinnedConstraints
+from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 
 
 def _geom(theta=1.5):

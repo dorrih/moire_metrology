@@ -12,7 +12,6 @@ from moire_metrology.mesh import MoireMesh, generate_finite_mesh
 from moire_metrology.pinning import PinningMap
 from moire_metrology.solver import RelaxationSolver, SolverConfig
 
-
 TBLG = Material(
     name="TBLG",
     lattice_constant=0.247,
@@ -81,7 +80,7 @@ class TestPinnedConstraints:
 
 class TestPinningMap:
     def test_pin_stacking_finds_vertices(self, setup_periodic):
-        mesh, geom, disc, conv, gsfe = setup_periodic
+        mesh, geom, _disc, _conv, _gsfe = setup_periodic
         pins = PinningMap(mesh, geom)
 
         # Pin at the center of the domain
@@ -93,7 +92,7 @@ class TestPinningMap:
         assert len(pinned) > 0
 
     def test_build_constraints(self, setup_periodic):
-        mesh, geom, disc, conv, gsfe = setup_periodic
+        mesh, geom, _disc, conv, _gsfe = setup_periodic
         pins = PinningMap(mesh, geom)
 
         cx = np.mean(mesh.points[0])
@@ -126,7 +125,7 @@ class TestConstrainedEnergy:
         np.random.seed(42)
         U_free = np.random.randn(constraints.n_free) * 0.001
 
-        E, grad = energy(U_free)
+        _E, grad = energy(U_free)
         assert len(grad) == constraints.n_free
 
         # Finite difference check
@@ -289,7 +288,7 @@ class TestFiniteMeshRelaxation:
         BA, run the relaxation, verify it converges and the pinned vertices
         actually carry the pinned displacement.
         """
-        mesh, geom, disc, conv = self._build_finite_setup()
+        mesh, geom, _disc, conv = self._build_finite_setup()
         pins = PinningMap(mesh, geom)
         cx = float(np.mean(mesh.points[0]))
         cy = float(np.mean(mesh.points[1]))
@@ -322,7 +321,7 @@ class TestFiniteMeshRelaxation:
 
     def test_solver_accepts_external_mesh(self):
         """Passing mesh=... bypasses the internal MoireMesh.generate() path."""
-        mesh, geom, disc, conv = self._build_finite_setup()
+        mesh, geom, _disc, conv = self._build_finite_setup()
         # Run with an explicit mesh, no constraints — should still relax
         # to the trivial U=0 solution because the unrelaxed state is
         # the unconstrained energy minimum modulo rigid translations.

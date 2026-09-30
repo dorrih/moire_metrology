@@ -41,16 +41,16 @@ from .polynomial import RegistryField
 from .support import convex_hull_mask
 
 __all__ = [
-    "StrainResult",
-    "get_strain",
-    "get_strain_minimize_compression",
-    "get_strain_axis",
-    "shear_strain_invariant",
-    "compute_displacement_field",
-    "compute_strain_field",
-    "displacement_from_strain_field",
     "FringeLine",
     "FringeSet",
     "RegistryField",
+    "StrainResult",
+    "compute_displacement_field",
+    "compute_strain_field",
     "convex_hull_mask",
+    "displacement_from_strain_field",
+    "get_strain",
+    "get_strain_axis",
+    "get_strain_minimize_compression",
+    "shear_strain_invariant",
 ]

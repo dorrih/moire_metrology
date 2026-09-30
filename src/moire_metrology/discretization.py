@@ -71,7 +71,7 @@ class PinnedConstraints:
 
 
 def build_outer_layer_constraints(
-    conv: "ConversionMatrices", fix_top: bool, fix_bottom: bool,
+    conv: ConversionMatrices, fix_top: bool, fix_bottom: bool,
     pin_mean: bool = False,
 ) -> PinnedConstraints:
     """Build PinnedConstraints clamping the outer (free-surface) layers to zero.

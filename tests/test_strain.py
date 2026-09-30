@@ -14,26 +14,26 @@ from moire_metrology.strain import (
 
 class TestGetStrainAxis:
     def test_zero_strain(self):
-        eps1, eps2, angle = get_strain_axis(0.0, 0.0, 0.0)
+        eps1, eps2, _angle = get_strain_axis(0.0, 0.0, 0.0)
         assert eps1 == 0.0
         assert eps2 == 0.0
 
     def test_pure_dilatation(self):
         """S = eps*I -> eps1 = eps2 = eps."""
-        eps1, eps2, angle = get_strain_axis(0.01, 0.0, 0.01)
+        eps1, eps2, _angle = get_strain_axis(0.01, 0.0, 0.01)
         np.testing.assert_allclose(eps1, 0.01, atol=1e-10)
         np.testing.assert_allclose(eps2, 0.01, atol=1e-10)
 
     def test_uniaxial(self):
         """S = [[eps, 0], [0, 0]] -> eps1 = eps, eps2 = 0."""
-        eps1, eps2, angle = get_strain_axis(0.02, 0.0, 0.0)
+        eps1, eps2, _angle = get_strain_axis(0.02, 0.0, 0.0)
         np.testing.assert_allclose(eps1, 0.02, atol=1e-10)
         np.testing.assert_allclose(eps2, 0.0, atol=1e-10)
 
     def test_pure_shear(self):
         """S = [[0, gamma], [gamma, 0]] -> eps1 = gamma, eps2 = -gamma."""
         gamma = 0.005
-        eps1, eps2, angle = get_strain_axis(0.0, gamma, 0.0)
+        eps1, eps2, _angle = get_strain_axis(0.0, gamma, 0.0)
         np.testing.assert_allclose(eps1, gamma, atol=1e-10)
         np.testing.assert_allclose(eps2, -gamma, atol=1e-10)
 

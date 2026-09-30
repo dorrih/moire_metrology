@@ -205,7 +205,7 @@ class RotationConstraint:
         conv: ConversionMatrices,
         mesh_points: np.ndarray,
         layer_idx: int = 0,
-    ) -> "RotationConstraint":
+    ) -> RotationConstraint:
         """Constrain net rotation over all vertices of a layer."""
         return cls(
             layer_idx=layer_idx,

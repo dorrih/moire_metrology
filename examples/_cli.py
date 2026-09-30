@@ -304,14 +304,14 @@ def build_solver_config(
     Extra keyword arguments are forwarded to the constructor and
     override anything derived from *args*.
     """
-    kwargs: dict[str, object] = dict(
-        method=args.method,
-        pixel_size=args.pixel_size,
-        max_iter=args.max_iter,
-        gtol=args.gtol,
-        rtol=getattr(args, "rtol", 1e-4),
-        display=True,
-    )
+    kwargs: dict[str, object] = {
+        "method": args.method,
+        "pixel_size": args.pixel_size,
+        "max_iter": args.max_iter,
+        "gtol": args.gtol,
+        "rtol": getattr(args, "rtol", 1e-4),
+        "display": True,
+    }
     # Pass through iterative-solver args if present on the namespace.
     if getattr(args, "linear_solver", None) is not None:
         kwargs["linear_solver"] = args.linear_solver

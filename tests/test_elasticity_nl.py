@@ -86,7 +86,7 @@ def _elastic_only_energy(energy_func: RelaxationEnergy, U: np.ndarray) -> float:
 
 def test_rigid_rotation_gl_is_zero_cauchy_is_not():
     mesh, *_, ef_c = _build("cauchy")
-    mesh2, *_, ef_gl = _build("green_lagrange")
+    _mesh2, *_, ef_gl = _build("green_lagrange")
     for alpha in (0.5, 2.0, 10.0):
         U = _rigid_rotation_U(mesh, alpha)
         E_c = _elastic_only_energy(ef_c, U)
@@ -100,8 +100,8 @@ def test_rigid_rotation_gl_is_zero_cauchy_is_not():
 def test_small_strain_gl_matches_cauchy():
     """For tiny displacements, GL and Cauchy elastic energies agree."""
     rng = np.random.default_rng(0)
-    mesh, *_, ef_c = _build("cauchy")
-    mesh2, *_, ef_gl = _build("green_lagrange")
+    _mesh, *_, ef_c = _build("cauchy")
+    _mesh2, *_, ef_gl = _build("green_lagrange")
     n = ef_c.conv.n_sol
     U = 1e-4 * rng.standard_normal(n)
     E_c = _elastic_only_energy(ef_c, U)
@@ -112,7 +112,7 @@ def test_small_strain_gl_matches_cauchy():
 
 def test_gl_gradient_vs_finite_difference():
     rng = np.random.default_rng(1)
-    mesh, *_, ef_gl = _build("green_lagrange")
+    _mesh, *_, ef_gl = _build("green_lagrange")
     n = ef_gl.conv.n_sol
     U = 1e-3 * rng.standard_normal(n)
     _, g = ef_gl(U)
@@ -130,7 +130,7 @@ def test_gl_gradient_vs_finite_difference():
 
 def test_gl_hessp_vs_finite_diff_of_grad():
     rng = np.random.default_rng(2)
-    mesh, *_, ef_gl = _build("green_lagrange")
+    _mesh, *_, ef_gl = _build("green_lagrange")
     n = ef_gl.conv.n_sol
     U = 1e-3 * rng.standard_normal(n)
     p = rng.standard_normal(n)
@@ -145,7 +145,7 @@ def test_gl_hessp_vs_finite_diff_of_grad():
 def test_gl_hessian_matches_hessp():
     """Sparse Hessian row i · p == hessp(U, p)[i] for random p."""
     rng = np.random.default_rng(3)
-    mesh, *_, ef_gl = _build("green_lagrange")
+    _mesh, *_, ef_gl = _build("green_lagrange")
     n = ef_gl.conv.n_sol
     U = 1e-3 * rng.standard_normal(n)
     H = ef_gl.hessian(U).toarray()

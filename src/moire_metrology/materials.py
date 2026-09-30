@@ -54,9 +54,10 @@ Sources for the bundled values
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 
@@ -120,7 +121,7 @@ class Material:
         lattice_constant: float,
         bulk_modulus_n_per_m: float,
         shear_modulus_n_per_m: float,
-    ) -> "Material":
+    ) -> Material:
         """Construct a Material from K, G in literature-standard N/m units.
 
         The package internally stores moduli in meV per unit cell to
@@ -168,10 +169,10 @@ class Material:
     @classmethod
     def n_layer_stack(
         cls,
-        base: "Material",
+        base: Material,
         n: int = 1,
         name: str | None = None,
-    ) -> "Material":
+    ) -> Material:
         """Return a Material for ``n`` coherently-strained copies of ``base``.
 
         The returned Material has the same lattice constant as ``base``
@@ -217,7 +218,7 @@ class Material:
         )
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "Material":
+    def from_dict(cls, data: Mapping[str, Any]) -> Material:
         """Build a Material from a plain ``dict`` (e.g. parsed from TOML).
 
         Required keys: ``name``, ``lattice_constant``, ``bulk_modulus``,
@@ -248,7 +249,7 @@ class Material:
         )
 
     @classmethod
-    def from_toml(cls, path: str | Path) -> "Material":
+    def from_toml(cls, path: str | Path) -> Material:
         """Load a Material from a TOML file.
 
         The file must contain a top-level ``[material]`` table with the

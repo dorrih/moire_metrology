@@ -34,10 +34,13 @@ import numpy as np
 
 from moire_metrology import (
     GRAPHENE_BILAYER_GRAPHENE_BILAYER,
-    HexagonalLattice, MoireGeometry,
+    HexagonalLattice,
+    MoireGeometry,
     PeriodicPairConstraint,
-    RelaxationSolver, SolverConfig,
-    generate_hex_periodic_mesh, identify_hex_periodic_boundary,
+    RelaxationSolver,
+    SolverConfig,
+    generate_hex_periodic_mesh,
+    identify_hex_periodic_boundary,
 )
 from moire_metrology.discretization import PinnedConstraints
 
@@ -68,7 +71,7 @@ def build_constraints(mesh, info, n_lay: int = 2):
         n_free=len(free_idx), n_full=n_full,
     )
 
-    corner_set = set(int(c) for c in info["corners"])
+    corner_set = {int(c) for c in info["corners"]}
     mean_cs = []
     for pair in info["pairs"]:
         src = pair["src_indices"]

@@ -95,12 +95,12 @@ class FringeSet:
         for family_fringes in [self.i_fringes, self.j_fringes]:
             if len(family_fringes) < 2:
                 continue
-            indices = sorted(set(f.index for f in family_fringes))
+            indices = sorted({f.index for f in family_fringes})
             if len(indices) < 2:
                 continue
             # Average spacing between first and last fringe
-            first = [f for f in family_fringes if f.index == indices[0]][0]
-            last = [f for f in family_fringes if f.index == indices[-1]][0]
+            first = next(f for f in family_fringes if f.index == indices[0])
+            last = next(f for f in family_fringes if f.index == indices[-1])
             cx1, cy1 = np.mean(first.x), np.mean(first.y)
             cx2, cy2 = np.mean(last.x), np.mean(last.y)
             dist = np.sqrt((cx2 - cx1) ** 2 + (cy2 - cy1) ** 2)

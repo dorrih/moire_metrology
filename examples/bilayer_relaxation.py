@@ -50,6 +50,7 @@ from __future__ import annotations
 
 from time import perf_counter
 
+import _cli
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -57,9 +58,6 @@ from moire_metrology import RelaxationSolver
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 from moire_metrology.mesh import MoireMesh
 from moire_metrology.result import RelaxationResult
-
-import _cli
-
 
 # ── Presets ────────────────────────────────────────────────────────────
 #
@@ -75,18 +73,18 @@ import _cli
 # dependent basin selection in TDBG.
 
 PRESETS = {
-    "graphene": dict(
-        interface="graphene", theta_twist=0.2, pixel_size=1.0,
-        method="newton", max_iter=60, gtol=1e-6,
-    ),
-    "hbn": dict(
-        interface="graphene-hbn", theta_twist=0.0, pixel_size=0.5,
-        method="L-BFGS-B", max_iter=300, gtol=1e-4,
-    ),
-    "tmd": dict(
-        interface="mose2-wse2-h", theta_twist=1.5, pixel_size=0.5,
-        method="L-BFGS-B", max_iter=300, gtol=1e-4,
-    ),
+    "graphene": {
+        "interface": "graphene", "theta_twist": 0.2, "pixel_size": 1.0,
+        "method": "newton", "max_iter": 60, "gtol": 1e-6,
+    },
+    "hbn": {
+        "interface": "graphene-hbn", "theta_twist": 0.0, "pixel_size": 0.5,
+        "method": "L-BFGS-B", "max_iter": 300, "gtol": 1e-4,
+    },
+    "tmd": {
+        "interface": "mose2-wse2-h", "theta_twist": 1.5, "pixel_size": 0.5,
+        "method": "L-BFGS-B", "max_iter": 300, "gtol": 1e-4,
+    },
 }
 DEFAULT_PRESET = "graphene"
 

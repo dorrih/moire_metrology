@@ -32,7 +32,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 from ..interfaces import Interface
 from ..solver import RelaxationSolver, SolverConfig, _validate_flake_interfaces
 

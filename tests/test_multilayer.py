@@ -6,7 +6,6 @@ import pytest
 from moire_metrology import Interface, Material, SolverConfig
 from moire_metrology.multilayer import LayerStack
 
-
 # Custom material+interface mirroring the v0.1.0 hand-rolled TBLG entry.
 # These tests use the older MATLAB K/G values (not the bundled Zhou values)
 # to keep numerical comparisons stable across the refactor — the absolute
@@ -169,7 +168,8 @@ class TestFixOuterLayers:
     def test_explicit_constraints_conflict_raises(self):
         """Combining fix_bottom with an explicit constraints object is rejected."""
         from moire_metrology.discretization import (
-            Discretization, build_outer_layer_constraints,
+            Discretization,
+            build_outer_layer_constraints,
         )
         from moire_metrology.lattice import HexagonalLattice, MoireGeometry
         from moire_metrology.mesh import MoireMesh
@@ -222,7 +222,7 @@ class TestMultiLayerGradient:
         np.random.seed(42)
         U = np.random.randn(conv.n_sol) * 0.001
 
-        E, grad = energy(U)
+        _E, grad = energy(U)
 
         # Finite difference check
         h = 1e-6

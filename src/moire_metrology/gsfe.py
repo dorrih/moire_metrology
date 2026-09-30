@@ -48,7 +48,7 @@ class GSFESurface:
 
     def dv(self, v: np.ndarray, w: np.ndarray) -> np.ndarray:
         """dV/dv."""
-        c0, c1, c2, c3, c4, c5 = self.c
+        _c0, c1, c2, c3, c4, c5 = self.c
         return (
             c1 * (-sin(v) - sin(v + w))
             + c2 * (-sin(v + 2 * w) - sin(v - w) - 2 * sin(2 * v + w))
@@ -59,7 +59,7 @@ class GSFESurface:
 
     def dw(self, v: np.ndarray, w: np.ndarray) -> np.ndarray:
         """dV/dw."""
-        c0, c1, c2, c3, c4, c5 = self.c
+        _c0, c1, c2, c3, c4, c5 = self.c
         return (
             c1 * (-sin(w) - sin(v + w))
             + c2 * (-2 * sin(v + 2 * w) + sin(v - w) - sin(2 * v + w))
@@ -70,7 +70,7 @@ class GSFESurface:
 
     def d2v2(self, v: np.ndarray, w: np.ndarray) -> np.ndarray:
         """d^2V/dv^2."""
-        c0, c1, c2, c3, c4, c5 = self.c
+        _c0, c1, c2, c3, c4, c5 = self.c
         return (
             c1 * (-cos(v) - cos(v + w))
             + c2 * (-cos(v + 2 * w) - cos(v - w) - 4 * cos(2 * v + w))
@@ -81,7 +81,7 @@ class GSFESurface:
 
     def d2w2(self, v: np.ndarray, w: np.ndarray) -> np.ndarray:
         """d^2V/dw^2."""
-        c0, c1, c2, c3, c4, c5 = self.c
+        _c0, c1, c2, c3, c4, c5 = self.c
         return (
             c1 * (-cos(w) - cos(v + w))
             + c2 * (-4 * cos(v + 2 * w) - cos(v - w) - cos(2 * v + w))
@@ -92,7 +92,7 @@ class GSFESurface:
 
     def d2vw(self, v: np.ndarray, w: np.ndarray) -> np.ndarray:
         """d^2V/dvdw."""
-        c0, c1, c2, c3, c4, c5 = self.c
+        _c0, c1, c2, c3, c4, c5 = self.c
         return (
             c1 * (-cos(v + w))
             + c2 * (-2 * cos(v + 2 * w) + cos(v - w) - 2 * cos(2 * v + w))

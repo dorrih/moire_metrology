@@ -358,7 +358,7 @@ def generate_hex_periodic_mesh(
     V1 = np.asarray(geometry.V1)
     V2 = np.asarray(geometry.V2)
     L = float(np.linalg.norm(V1))
-    N = max(2, int(round(L / pixel_size)))
+    N = max(2, round(L / pixel_size))
     g1 = V1 / N
     g2 = V2 / N
 

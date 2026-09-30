@@ -44,20 +44,19 @@ from __future__ import annotations
 from pathlib import Path
 from time import perf_counter
 
+import _cli
 import matplotlib.pyplot as plt
 import numpy as np
 
 from moire_metrology import (
     GRAPHENE,
-    RelaxationSolver, SolverConfig,
+    RelaxationSolver,
+    SolverConfig,
 )
 from moire_metrology.discretization import Discretization, PinnedConstraints
 from moire_metrology.lattice import HexagonalLattice, MoireGeometry
 from moire_metrology.mesh import generate_finite_mesh
 from moire_metrology.strain import get_strain_minimize_compression
-
-import _cli
-
 
 # =======================================================================
 # Part A -- Strain extraction sweep
