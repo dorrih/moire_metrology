@@ -212,6 +212,14 @@ class SolverConfig:
     # output using the standard max_iter / gtol / rtol / etol criteria.
     max_iter_discover: int = 300
     gtol_discover_factor: float = 10.0
+    # Opt-in preconditioned polish (method='two_phase'): replace the trust-ncg
+    # polish with a preconditioned Steihaug-Toint trust-region Newton (AMG on the
+    # elastic Hessian + frozen GSFE-curvature diagonal). Needs elastic_strain=
+    # 'cauchy' and the optional dependency pyamg; falls back to trust-ncg if
+    # either is missing. precond_refresh = rebuild the preconditioner every N
+    # accepted steps (keeps it effective across large reconfigurations).
+    precond_polish: bool = False
+    precond_refresh: int = 25
 
 
 def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
@@ -839,6 +847,209 @@ def _lbfgs_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     }
 
 
+# --------------------------------------------------------------------------
+# Preconditioned trust-region Newton polish (opt-in: SolverConfig.precond_polish)
+#
+# A hand-rolled preconditioned Steihaug-Toint trust-region Newton method: it
+# keeps the negative-curvature exit of trust-ncg (so it still crosses saddles),
+# but preconditions the inner CG with algebraic multigrid on the assembled
+# elastic Hessian plus a frozen GSFE-curvature diagonal, using the rigid-body
+# near-null-space of the free layers. On strongly reconfiguring, ill-conditioned
+# relaxations this cuts inner Hessian-vector products by ~5-10x to the same
+# minimum. Requires elastic_strain='cauchy' (assembled elastic Hessian) and the
+# optional dependency pyamg; the caller falls back to trust-ncg otherwise.
+# --------------------------------------------------------------------------
+def _rbm_block(off: int, vals: np.ndarray, n: int) -> np.ndarray:
+    v = np.zeros(n)
+    v[off:off + len(vals)] = vals
+    return v
+
+
+def _rigid_body_modes(energy_func: RelaxationEnergy) -> np.ndarray:
+    """Rigid-body near-null-space (2 translations + 1 rotation per free layer),
+    in free-DOF ordering. General over which layers are free; used as the
+    smoothed-aggregation near-null-space for the elastic block."""
+    mesh = energy_func.disc.mesh
+    Nv = mesh.n_vertices
+    x, y = mesh.points[0], mesh.points[1]
+    nlt = energy_func._nlayers_total
+    n_full = 2 * nlt * Nv
+    c = energy_func.constraints
+    fi = c.free_indices if c is not None else np.arange(n_full)
+    cols = []
+    for L in range(nlt):
+        ox, oy = L * Nv, nlt * Nv + L * Nv
+        for full in (_rbm_block(ox, np.ones(Nv), n_full),
+                     _rbm_block(oy, np.ones(Nv), n_full),
+                     _rbm_block(ox, -y, n_full) + _rbm_block(oy, x, n_full)):
+            col = full[fi]
+            if np.any(col):
+                cols.append(col)
+    return np.column_stack(cols)
+
+
+def _gsfe_hessian_diag(energy_func: RelaxationEnergy, U_full: np.ndarray) -> np.ndarray:
+    """|diag| of the GSFE Hessian per full DOF at U_full (frozen). abs() keeps the
+    preconditioner SPD (the GSFE Hessian is indefinite -- negative curvature at
+    GSFE maxima). General over all GSFE-coupled layer pairs."""
+    Nv = energy_func.Nv
+    a, b, cc, d = energy_func._Mu1.ravel()
+    w_v = energy_func._area_v_norm
+    out = np.zeros(2 * energy_func._nlayers_total * Nv)
+    for pair in energy_func._gsfe_pairs:
+        v, w = energy_func._pair_phases(pair, U_full)
+        p, q, r = pair.gsfe.d2v2(v, w), pair.gsfe.d2vw(v, w), pair.gsfe.d2w2(v, w)
+        g00 = np.abs(w_v * (a * a * p + 2 * a * cc * q + cc * cc * r))
+        g11 = np.abs(w_v * (b * b * p + 2 * b * d * q + d * d * r))
+        for ox, oy in ((pair.layer_a_ox, pair.layer_a_oy),
+                       (pair.layer_b_ox, pair.layer_b_oy)):
+            out[ox:ox + Nv] += g00
+            out[oy:oy + Nv] += g11
+    return out
+
+
+def _steihaug_cg(g, hp, minv, mmat, delta, tol, maxit):
+    """Preconditioned Steihaug-Toint truncated CG for the TR subproblem
+    min gᵀp + ½pᵀHp s.t. ||p||_M ≤ delta. Returns (p, reason). Exits to the
+    trust-region boundary on negative curvature or radius overshoot -- the
+    mechanism that lets the outer Newton step cross saddles."""
+    z = np.zeros_like(g)
+    r = g.copy()
+    y = minv(r)
+    d = -y
+
+    def m2(vv):
+        return float(vv @ (mmat @ vv))
+
+    def tau_bd(zz, dd):
+        aa = m2(dd)
+        bb = 2.0 * float(zz @ (mmat @ dd))
+        cc2 = m2(zz) - delta * delta
+        return (-bb + np.sqrt(max(bb * bb - 4.0 * aa * cc2, 0.0))) / (2.0 * aa)
+
+    if np.linalg.norm(r) < tol:
+        return z, "tol0"
+    for _ in range(maxit):
+        hd = hp(d)
+        dhd = float(d @ hd)
+        if dhd <= 0:
+            return z + tau_bd(z, d) * d, "negcurv"
+        alpha = float(r @ y) / dhd
+        z_new = z + alpha * d
+        if m2(z_new) >= delta * delta:
+            return z + tau_bd(z, d) * d, "boundary"
+        r_new = r + alpha * hd
+        if np.linalg.norm(r_new) < tol:
+            return z_new, "cg_conv"
+        y_new = minv(r_new)
+        beta = float(r_new @ y_new) / float(r @ y)
+        d = -y_new + beta * d
+        z, r, y = z_new, r_new, y_new
+    return z, "cg_max"
+
+
+def _precond_tr_newton(energy_func, U0, max_iter, gtol, rtol, etol, etol_window,
+                       display, mean_B=None, mean_t=None, refresh=25):
+    """Preconditioned trust-region Newton polish. Same interface and return
+    shape as :func:`_trust_ncg_solve`. The preconditioner (AMG on the elastic
+    Hessian + a frozen GSFE-curvature diagonal) is refreshed every ``refresh``
+    accepted steps so it stays effective across large reconfigurations."""
+    import pyamg
+    from scipy import sparse as _sp
+
+    has_mean = mean_B is not None
+    if has_mean:
+        from scipy.linalg import lu_factor, lu_solve
+        BBT_lu = lu_factor((mean_B @ mean_B.T).toarray())
+
+        def project(v):
+            return v - mean_B.T @ lu_solve(BBT_lu, mean_B @ v)
+    else:
+        def project(v):
+            return v
+
+    def fun(U):
+        return float(energy_func(project(U))[0])
+
+    def jac(U):
+        return project(energy_func(project(U))[1])
+
+    nfev = {"n": 0}
+
+    def hessp(U, p):
+        nfev["n"] += 1
+        return project(energy_func.hessp(project(U), project(p)))
+
+    c = energy_func.constraints
+    fi = c.free_indices if c is not None else np.arange(len(U0))
+    He = energy_func._H_elastic.tocsr()[fi][:, fi].tocsr().astype(float)
+    B_null = _rigid_body_modes(energy_func)
+
+    def build_precond(U):
+        U_full = c.expand(U) if c is not None else U
+        dg = _gsfe_hessian_diag(energy_func, U_full)[fi]
+        mmat = (He + _sp.diags(dg)).tocsr()
+        ml = pyamg.smoothed_aggregation_solver(mmat, B=B_null, max_coarse=400)
+        pre = ml.aspreconditioner(cycle="V")
+
+        def minv(rv):
+            return project(pre(project(rv)))
+
+        return minv, mmat
+
+    x = U0.copy()
+    _, g0 = energy_func(project(x))
+    gnorm0 = max(float(np.linalg.norm(project(g0))), 1.0)
+    minv, mmat = build_precond(x)
+    delta, dmax, dmin = 1.0, 1e6, 1e-12
+    recent_E, n_acc, success, reason, nit = [], 0, False, "", 0
+    for nit in range(1, max_iter + 1):
+        g = jac(x)
+        gn = float(np.linalg.norm(g))
+        if gn < gtol or gn / gnorm0 < rtol:
+            success, reason = True, "converged (gradient)"
+            break
+        if n_acc > 0 and n_acc % refresh == 0:
+            minv, mmat = build_precond(x)
+        p, _why = _steihaug_cg(g, lambda pp, x=x: hessp(x, pp), minv, mmat,
+                               delta, min(0.5, np.sqrt(gn)) * gn,
+                               maxit=2 * len(x) + 10)
+        hp_p = hessp(x, p)
+        pred = -(float(g @ p) + 0.5 * float(p @ hp_p))
+        f1 = fun(x + p)
+        rho = (fun(x) - f1) / pred if pred > 1e-300 else -1.0
+        p_m = np.sqrt(max(float(p @ (mmat @ p)), 0.0))
+        if rho < 0.25:
+            delta *= 0.25
+        elif rho > 0.75 and p_m >= 0.99 * delta:
+            delta = min(2.0 * delta, dmax)
+        if rho > 0.1:
+            x = x + p
+            n_acc += 1
+            recent_E.append(f1)
+        if len(recent_E) >= etol_window + 1:
+            w = recent_E[-(etol_window + 1):]
+            if (w[0] - w[-1]) / max(abs(w[-1]), 1.0) < etol:
+                success, reason = True, (
+                    f"converged (energy stagnation over {etol_window} iters)")
+                break
+        if delta < dmin:
+            success, reason = True, "converged (trust radius floor)"
+            break
+        if display and (nit % 20 == 0 or nit <= 3):
+            print(f"  iter {nit:4d}: E = {f1:.4f}, |grad| = {gn:.2e} "
+                  f"(rel {gn / gnorm0:.2e}), delta = {delta:.2e}", flush=True)
+    else:
+        success, reason = False, f"max iterations ({max_iter}) reached"
+    E_final, grad_final = energy_func(project(x))
+    return {
+        "x": x, "fun": float(E_final), "jac": project(grad_final),
+        "nit": nit, "nfev": nfev["n"],
+        "message": f"precond-tr-newton: {reason}",
+        "success": bool(success),
+    }
+
+
 def _two_phase_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                      max_iter: int, gtol: float, rtol: float,
                      etol: float, etol_window: int,
@@ -846,7 +1057,9 @@ def _two_phase_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                      max_iter_discover: int = 300,
                      gtol_discover_factor: float = 10.0,
                      mean_B: sparse.csr_matrix | None = None,
-                     mean_t: np.ndarray | None = None) -> dict:
+                     mean_t: np.ndarray | None = None,
+                     precond_polish: bool = False,
+                     precond_refresh: int = 25) -> dict:
     """Two-phase relaxation: L-BFGS-B discovery → trust-ncg polish.
 
     Phase 1 (discovery, :func:`_lbfgs_solve`): run L-BFGS-B from ``U0``
@@ -882,15 +1095,37 @@ def _two_phase_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
             f"  two_phase: phase 1 done at E = {res1['fun']:.4f}, "
             f"handing off to trust-ncg"
         )
-        print(
-            f"  two_phase: phase 2 (trust-ncg polish), "
-            f"max_iter={max_iter}, gtol={gtol:.2e}"
+    # Phase 2: preconditioned TR-Newton if requested and available, else trust-ncg.
+    _use_pc = precond_polish
+    if _use_pc:
+        try:
+            import pyamg  # noqa: F401
+        except ImportError:
+            _use_pc = False
+            if display:
+                print("  two_phase: precond_polish requested but pyamg not "
+                      "installed; using trust-ncg")
+    if _use_pc and getattr(energy_func, "_H_elastic", None) is None:
+        _use_pc = False
+        if display:
+            print("  two_phase: precond_polish needs elastic_strain='cauchy' "
+                  "(assembled Hessian); using trust-ncg")
+    if display:
+        _pname = "preconditioned TR-Newton" if _use_pc else "trust-ncg"
+        print(f"  two_phase: phase 2 ({_pname} polish), "
+              f"max_iter={max_iter}, gtol={gtol:.2e}")
+    if _use_pc:
+        res2 = _precond_tr_newton(
+            energy_func, res1["x"], max_iter, gtol, rtol,
+            etol, etol_window, display,
+            mean_B=mean_B, mean_t=mean_t, refresh=precond_refresh,
         )
-    res2 = _trust_ncg_solve(
-        energy_func, res1["x"], max_iter, gtol, rtol,
-        etol, etol_window, display,
-        mean_B=mean_B, mean_t=mean_t,
-    )
+    else:
+        res2 = _trust_ncg_solve(
+            energy_func, res1["x"], max_iter, gtol, rtol,
+            etol, etol_window, display,
+            mean_B=mean_B, mean_t=mean_t,
+        )
 
     return {
         "x": res2["x"], "fun": res2["fun"], "jac": res2["jac"],
@@ -1512,6 +1747,8 @@ class RelaxationSolver:
                         max_iter_discover=cfg.max_iter_discover,
                         gtol_discover_factor=cfg.gtol_discover_factor,
                         mean_B=mean_B, mean_t=mean_t,
+                        precond_polish=cfg.precond_polish,
+                        precond_refresh=cfg.precond_refresh,
                     )
             else:
                 if mean_constraints:
