@@ -17,11 +17,21 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy import sparse
+from scipy.optimize import minimize
+from scipy.sparse.linalg import spsolve
+
+from .discretization import Discretization
+from .energy import RelaxationEnergy
+from .gsfe import GSFESurface
+from .interfaces import Interface
+from .lattice import HexagonalLattice, MoireGeometry
+from .mesh import MoireMesh
+from .result import RelaxationResult
 
 
 def _maybe_checkpoint(state: dict, *, phase: str) -> None:
@@ -53,24 +63,13 @@ def _maybe_checkpoint(state: dict, *, phase: str) -> None:
                      nit=int(state["nit"]),
                      phase=str(phase))
         os.replace(tmp, path)  # atomic on POSIX
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         # Never crash the solve for a checkpoint hiccup — just log to stderr.
         try:
             import sys
             print(f"  [checkpoint save failed: {e}]", file=sys.stderr, flush=True)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
-from scipy import sparse
-from scipy.optimize import minimize
-from scipy.sparse.linalg import spsolve
-
-from .discretization import Discretization
-from .energy import RelaxationEnergy
-from .gsfe import GSFESurface
-from .interfaces import Interface
-from .lattice import HexagonalLattice, MoireGeometry
-from .mesh import MoireMesh
-from .result import RelaxationResult
 
 if TYPE_CHECKING:
     from .discretization import PinnedConstraints

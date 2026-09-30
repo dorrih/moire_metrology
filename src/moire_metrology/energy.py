@@ -532,7 +532,10 @@ class RelaxationEnergy:
         uyx = np.einsum("kj,kj->k", bx, uy_t)
         uyy = np.einsum("kj,kj->k", by, uy_t)
 
-        F11 = 1.0 + uxx; F12 = uxy; F21 = uyx; F22 = 1.0 + uyy
+        F11 = 1.0 + uxx
+        F12 = uxy
+        F21 = uyx
+        F22 = 1.0 + uyy
         E11 = 0.5 * (F11 * F11 + F21 * F21 - 1.0)
         E22 = 0.5 * (F12 * F12 + F22 * F22 - 1.0)
         E12 = 0.5 * (F11 * F12 + F21 * F22)
