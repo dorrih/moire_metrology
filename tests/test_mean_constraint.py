@@ -8,8 +8,8 @@ import pytest
 from moire_metrology import (
     GRAPHENE_GRAPHENE,
     MeanDisplacementConstraint,
-    RotationConstraint,
     RelaxationSolver,
+    RotationConstraint,
     SolverConfig,
     generate_finite_mesh,
 )
@@ -41,7 +41,7 @@ def test_build_matrix_shape_and_target():
     assert B[0].sum() == pytest.approx(1.0, rel=1e-12)
     # Row 0 must have nonzeros only at layer-0 x-DOFs.
     Nv = conv.n_vertices
-    assert set(B[0].indices.tolist()) == set(range(0, Nv))
+    assert set(B[0].indices.tolist()) == set(range(Nv))
 
 
 def test_stack_rejects_pinned_overlap():
@@ -150,7 +150,7 @@ def test_rotation_constraint_build_matrix():
     # Nonzero entries should touch both x- and y-DOFs of layer 0.
     Nv = conv.n_vertices
     nnz_cols = set(B.indices.tolist())
-    x_dofs = set(range(0, Nv))
+    x_dofs = set(range(Nv))
     y_dofs = set(range(2 * Nv, 3 * Nv))
     assert nnz_cols <= (x_dofs | y_dofs)
     assert len(nnz_cols & x_dofs) > 0
@@ -243,12 +243,12 @@ def test_mean_constraint_iterative_matches_direct():
     mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
     rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
 
-    common = dict(
-        moire_interface=GRAPHENE_GRAPHENE,
-        theta_twist=1.5, delta=0.0,
-        mesh=mesh, constraints=pc,
-        mean_constraints=[mdc, rot],
-    )
+    common = {
+        "moire_interface": GRAPHENE_GRAPHENE,
+        "theta_twist": 1.5, "delta": 0.0,
+        "mesh": mesh, "constraints": pc,
+        "mean_constraints": [mdc, rot],
+    }
 
     cfg_direct = SolverConfig(
         method="newton", linear_solver="direct", display=False,
@@ -296,12 +296,12 @@ def test_trust_ncg_with_mean_constraints():
     mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
     rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
 
-    common = dict(
-        moire_interface=GRAPHENE_GRAPHENE,
-        theta_twist=1.5, delta=0.0,
-        mesh=mesh, constraints=pc,
-        mean_constraints=[mdc, rot],
-    )
+    common = {
+        "moire_interface": GRAPHENE_GRAPHENE,
+        "theta_twist": 1.5, "delta": 0.0,
+        "mesh": mesh, "constraints": pc,
+        "mean_constraints": [mdc, rot],
+    }
 
     cfg_newton = SolverConfig(
         method="newton", linear_solver="direct", display=False,
@@ -352,12 +352,12 @@ def test_lbfgs_with_mean_constraints():
     mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
     rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
 
-    common = dict(
-        moire_interface=GRAPHENE_GRAPHENE,
-        theta_twist=1.5, delta=0.0,
-        mesh=mesh, constraints=pc,
-        mean_constraints=[mdc, rot],
-    )
+    common = {
+        "moire_interface": GRAPHENE_GRAPHENE,
+        "theta_twist": 1.5, "delta": 0.0,
+        "mesh": mesh, "constraints": pc,
+        "mean_constraints": [mdc, rot],
+    }
 
     cfg_newton = SolverConfig(
         method="newton", linear_solver="direct", display=False,
@@ -400,8 +400,11 @@ def test_lbfgs_with_periodic_pair_constraint():
     space projection's defining property).  This exercises the path
     used by hex-Wigner-Seitz periodic-cell relaxations."""
     from moire_metrology import (
-        HexagonalLattice, MoireGeometry, PeriodicPairConstraint,
-        generate_hex_periodic_mesh, identify_hex_periodic_boundary,
+        HexagonalLattice,
+        MoireGeometry,
+        PeriodicPairConstraint,
+        generate_hex_periodic_mesh,
+        identify_hex_periodic_boundary,
     )
 
     lat = HexagonalLattice(alpha=GRAPHENE_GRAPHENE.bottom.lattice_constant)
@@ -486,12 +489,12 @@ def test_two_phase_with_mean_constraints():
     mdc = MeanDisplacementConstraint.from_layer(conv, layer_idx=0)
     rot = RotationConstraint.from_layer(conv, mesh_points=mesh.points, layer_idx=0)
 
-    common = dict(
-        moire_interface=GRAPHENE_GRAPHENE,
-        theta_twist=1.5, delta=0.0,
-        mesh=mesh, constraints=pc,
-        mean_constraints=[mdc, rot],
-    )
+    common = {
+        "moire_interface": GRAPHENE_GRAPHENE,
+        "theta_twist": 1.5, "delta": 0.0,
+        "mesh": mesh, "constraints": pc,
+        "mean_constraints": [mdc, rot],
+    }
 
     cfg_trncg = SolverConfig(
         method="trust-ncg", display=False,

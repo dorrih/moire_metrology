@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class SolverConfig:
-    """Configuration for the relaxation solver.
+    r"""Configuration for the relaxation solver.
 
     Parameters
     ----------
@@ -182,8 +182,8 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                   linear_solver: str = "direct",
                   linear_solver_tol: float = 1e-6,
                   linear_solver_maxiter: int = 500,
-                  mean_B: "sparse.csr_matrix | None" = None,
-                  mean_t: "np.ndarray | None" = None) -> dict:
+                  mean_B: sparse.csr_matrix | None = None,
+                  mean_t: np.ndarray | None = None) -> dict:
     """Damped Newton solver with sparse direct Hessian factorization.
 
     Uses Levenberg-Marquardt damping to handle indefinite Hessians:
@@ -214,8 +214,8 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     changes each iteration. The linear system is solved with sparse LU.
     """
     from scipy.sparse import eye as speye
-    from scipy.sparse.linalg import cg as sparse_cg
     from scipy.sparse.linalg import LinearOperator, minres
+    from scipy.sparse.linalg import cg as sparse_cg
 
     U = U0.copy()
     E, grad = energy_func(U)
@@ -334,7 +334,7 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                     rhs_proj = _project(rhs_full)
 
                     def _matvec(v):
-                        return _project(H_damped @ _project(v))
+                        return _project(H_damped @ _project(v))  # noqa: B023
 
                     A_op = LinearOperator(
                         (n_sol, n_sol), matvec=_matvec, dtype=np.float64,
@@ -366,7 +366,7 @@ def _newton_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                     if info != 0 and display:
                         print(f"  [iter {nit}] CG did not fully converge "
                               f"(info={info}); using best iterate.")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 mu *= 10
                 continue
 
@@ -430,8 +430,8 @@ def _trust_ncg_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                       max_iter: int, gtol: float, rtol: float,
                       etol: float, etol_window: int,
                       display: bool,
-                      mean_B: "sparse.csr_matrix | None" = None,
-                      mean_t: "np.ndarray | None" = None) -> dict:
+                      mean_B: sparse.csr_matrix | None = None,
+                      mean_t: np.ndarray | None = None) -> dict:
     """True trust-region Newton-CG solver via scipy.optimize.minimize.
 
     Unlike :func:`_newton_solve` (Levenberg-Marquardt damping + an
@@ -600,8 +600,8 @@ def _lbfgs_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                  display: bool,
                  maxcor: int = 50, maxls: int = 40,
                  ftol: float = 1e-15,
-                 mean_B: "sparse.csr_matrix | None" = None,
-                 mean_t: "np.ndarray | None" = None) -> dict:
+                 mean_B: sparse.csr_matrix | None = None,
+                 mean_t: np.ndarray | None = None) -> dict:
     """Limited-memory BFGS-B solver via scipy.optimize.minimize.
 
     Gradient-only quasi-Newton: builds an approximate inverse Hessian
@@ -778,8 +778,8 @@ def _two_phase_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                      display: bool,
                      max_iter_discover: int = 300,
                      gtol_discover_factor: float = 10.0,
-                     mean_B: "sparse.csr_matrix | None" = None,
-                     mean_t: "np.ndarray | None" = None) -> dict:
+                     mean_B: sparse.csr_matrix | None = None,
+                     mean_t: np.ndarray | None = None) -> dict:
     """Two-phase relaxation: L-BFGS-B discovery → trust-ncg polish.
 
     Phase 1 (discovery, :func:`_lbfgs_solve`): run L-BFGS-B from ``U0``
@@ -988,7 +988,7 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                 _coef = beta * dt
 
                 def _matvec(p):
-                    return p + _coef * energy_func.hessp(_U_local, p)
+                    return p + _coef * energy_func.hessp(_U_local, p)  # noqa: B023
 
                 A_op = LinearOperator(
                     (n_sol, n_sol), matvec=_matvec, dtype=np.float64,
@@ -1001,7 +1001,7 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                 _precond = 1.0 / (1.0 + _coef * H_elastic_diag_free)
                 M_op = LinearOperator(
                     (n_sol, n_sol),
-                    matvec=lambda p: _precond * p,
+                    matvec=lambda p: _precond * p,  # noqa: B023
                     dtype=np.float64,
                 )
 
@@ -1016,7 +1016,7 @@ def _pseudo_dynamics_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
                     raise RuntimeError(f"minres returned info={info}")
                 # info > 0 means did-not-converge; we still use dU as a
                 # best-effort step and let the energy check accept/reject.
-        except Exception:
+        except Exception:  # noqa: BLE001
             # Numerical breakdown — shrink dt and retry.
             dt *= 0.5
             consec_rejects += 1
@@ -1193,12 +1193,12 @@ class RelaxationSolver:
         epsilon: np.ndarray | None = None,
         theta0: float = 0.0,
         initial_solution: np.ndarray | None = None,
-        constraints: "PinnedConstraints | None" = None,
+        constraints: PinnedConstraints | None = None,
         fix_top: bool = False,
         fix_bottom: bool = False,
         pin_mean: bool = False,
         mesh: MoireMesh | None = None,
-        mean_constraints: "list | None" = None,
+        mean_constraints: list | None = None,
         **legacy_kwargs,
     ) -> RelaxationResult:
         """Solve the relaxation problem.

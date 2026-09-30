@@ -35,9 +35,10 @@ References
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
 import numpy as np
 
@@ -107,7 +108,7 @@ class Interface:
         return self.bottom is self.top
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "Interface":
+    def from_dict(cls, data: Mapping[str, Any]) -> Interface:
         """Build an Interface from a plain ``dict`` (e.g. parsed from TOML).
 
         The dict must contain the following keys:
@@ -170,7 +171,7 @@ class Interface:
         )
 
     @classmethod
-    def from_toml(cls, path: str | Path) -> "Interface":
+    def from_toml(cls, path: str | Path) -> Interface:
         """Load an Interface from a TOML file.
 
         The file must contain a top-level ``[interface]`` table with

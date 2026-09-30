@@ -40,6 +40,7 @@ from __future__ import annotations
 
 from time import perf_counter
 
+import _cli
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -48,8 +49,6 @@ from moire_metrology.mesh import MoireMesh
 from moire_metrology.multilayer import LayerStack
 from moire_metrology.plotting import plot_scalar_field
 from moire_metrology.result import RelaxationResult
-
-import _cli
 
 
 def _load_cached_result(cache_path, interface, n_top, n_bottom):

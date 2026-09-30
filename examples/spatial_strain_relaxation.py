@@ -66,6 +66,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
+import _cli
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -84,9 +85,6 @@ from moire_metrology.strain import (
     convex_hull_mask,
     displacement_from_strain_field,
 )
-
-import _cli
-
 
 # --- Default parameters (overridable via CLI) ----------------------------
 
@@ -613,13 +611,13 @@ def main() -> None:
         f"Interface:              {interface.name}",
         f"Polynomial degree:      {poly_degree}",
         f"phi0 (deg):             {phi0_deg}",
-        f"|theta| range:          "
-        f"[{np.nanmin(np.abs(theta)):.3f}, {np.nanmax(np.abs(theta)):.3f}]",
+        (f"|theta| range:          "
+        f"[{np.nanmin(np.abs(theta)):.3f}, {np.nanmax(np.abs(theta)):.3f}]"),
         f"|theta| mean:           {np.nanmean(np.abs(theta)):.3f}",
-        f"eps_c mean / std (%):   "
-        f"{np.nanmean(eps_c) * 100:.4f} / {np.nanstd(eps_c) * 100:.4f}",
-        f"eps_s mean / std (%):   "
-        f"{np.nanmean(eps_s) * 100:.4f} / {np.nanstd(eps_s) * 100:.4f}",
+        (f"eps_c mean / std (%):   "
+        f"{np.nanmean(eps_c) * 100:.4f} / {np.nanstd(eps_c) * 100:.4f}"),
+        (f"eps_s mean / std (%):   "
+        f"{np.nanmean(eps_s) * 100:.4f} / {np.nanstd(eps_s) * 100:.4f}"),
     ]
     if result is not None:
         summary_lines += [

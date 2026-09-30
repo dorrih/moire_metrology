@@ -40,7 +40,6 @@ from .discretization import ConversionMatrices, PinnedConstraints
 from .lattice import MoireGeometry
 from .mesh import MoireMesh
 
-
 # Known stacking phases (v, w) for hexagonal lattices
 STACKING_PHASES = {
     "AA": (0.0, 0.0),
@@ -260,7 +259,7 @@ class PinningMap:
         with open(path) as f:
             for line in f:
                 line = line.strip()
-                if not line or line.startswith("#") or line.startswith("x"):
+                if not line or line.startswith(("#", "x")):
                     continue
                 parts = line.split(",")
                 pins.pin_stacking(

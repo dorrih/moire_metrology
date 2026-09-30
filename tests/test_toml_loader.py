@@ -8,13 +8,12 @@ from pathlib import Path
 import pytest
 
 from moire_metrology import (
+    MOSE2_WSE2_H_INTERFACE,
     Interface,
     Material,
-    MOSE2_WSE2_H_INTERFACE,
     RelaxationSolver,
     SolverConfig,
 )
-
 
 # ---------------------------------------------------------------------------
 # Material.from_dict / Material.from_toml

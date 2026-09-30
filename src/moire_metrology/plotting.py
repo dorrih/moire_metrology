@@ -7,8 +7,8 @@ multiple moire unit cells.
 
 from __future__ import annotations
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.tri import Triangulation
 
 
@@ -136,7 +136,7 @@ def plot_displacement_field(
         Arrow scale factor.
     """
     if ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(8, 7))
+        _fig, ax = plt.subplots(1, 1, figsize=(8, 7))
 
     V1 = mesh.V1
     V2 = mesh.V2

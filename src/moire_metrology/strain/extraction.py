@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from numpy import cos, sin, sqrt, arctan2, arccos, pi
+from numpy import arccos, arctan2, cos, pi, sin, sqrt
 
 
 @dataclass
@@ -156,7 +156,7 @@ def get_strain_minimize_compression(
     phi2_deg: float,
     phi0_guess: float = 0.0,
 ) -> StrainResult:
-    """Extract strain with phi0 chosen to minimize compression strain \|eps_c\|.
+    r"""Extract strain with phi0 chosen to minimize compression strain \|eps_c\|.
 
     This solves analytically for phi0 such that eps_c = 0 when possible,
     or finds the closest achievable phi0 when eps_c = 0 is infeasible.
@@ -571,7 +571,7 @@ def displacement_from_strain_field(
 
     Dx = discretization.diff_mat_x  # (Nt, Nv)
     Dy = discretization.diff_mat_y
-    Nt, Nv = Dx.shape
+    _Nt, Nv = Dx.shape
 
     triangles = discretization.mesh.triangles  # (Nt, 3)
 

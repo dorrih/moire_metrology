@@ -41,7 +41,7 @@ def test_hex_mesh_has_six_fold_symmetry():
 
 
 def test_hex_mesh_has_six_corners():
-    geom, mesh = _build_hex_mesh()
+    _geom, mesh = _build_hex_mesh()
     info = identify_hex_periodic_boundary(mesh)
     assert len(info["corners"]) == 6
     # The 6 corner vertices must be distinct indices
@@ -52,7 +52,7 @@ def test_hex_mesh_edges_correct_count():
     """The mesh from generate_hex_periodic_mesh, with the triangular
     sub-lattice constructed from V1/N, V2/N where N = round(|V1|/pixel),
     has exactly N+1 vertices per edge (including the two endpoint corners)."""
-    geom, mesh = _build_hex_mesh()
+    _geom, mesh = _build_hex_mesh()
     info = identify_hex_periodic_boundary(mesh)
     # All 6 edges should have the same number of vertices
     counts = [len(info["edges"][k]) for k in range(1, 7)]
@@ -63,7 +63,7 @@ def test_hex_mesh_edges_correct_count():
 def test_hex_mesh_pairs_match_geometrically():
     """Periodic pairing: for each pair entry, points at src_indices +
     translation must equal points at dst_indices to machine precision."""
-    geom, mesh = _build_hex_mesh()
+    _geom, mesh = _build_hex_mesh()
     info = identify_hex_periodic_boundary(mesh)
     for p in info["pairs"]:
         src_pts = mesh.points[:, p["src_indices"]].T
@@ -76,7 +76,7 @@ def test_hex_mesh_pairs_match_geometrically():
 
 
 def test_hex_mesh_three_pairs():
-    geom, mesh = _build_hex_mesh()
+    _geom, mesh = _build_hex_mesh()
     info = identify_hex_periodic_boundary(mesh)
     assert len(info["pairs"]) == 3
     # Each pair has the same number of vertices (the pair count = edge count)

@@ -45,7 +45,7 @@ from .mesh import (
     generate_hex_periodic_mesh,
     identify_hex_periodic_boundary,
 )
-from .pinning import PinningMap, InteractivePinner
+from .pinning import InteractivePinner, PinningMap
 from .solver import RelaxationSolver, SolverConfig
 
 try:
@@ -54,34 +54,34 @@ except ImportError:  # editable install without hatch-vcs
     __version__ = "0.0.0.dev0"
 
 __all__ = [
-    "GSFESurface",
-    "HexagonalLattice",
-    "MoireGeometry",
-    "Material",
-    "Interface",
+    "BUNDLED_INTERFACES",
     "GRAPHENE",
     "GRAPHENE_BILAYER",
+    "GRAPHENE_BILAYER_GRAPHENE_BILAYER",
+    "GRAPHENE_GRAPHENE",
+    "GRAPHENE_HBN_INTERFACE",
     "HBN_AA",
     "HBN_AAP",
-    "MOSE2",
-    "WSE2",
-    "GRAPHENE_GRAPHENE",
-    "GRAPHENE_BILAYER_GRAPHENE_BILAYER",
-    "HBN_AA_HOMOBILAYER",
     "HBN_AAP_HOMOBILAYER",
-    "GRAPHENE_HBN_INTERFACE",
+    "HBN_AA_HOMOBILAYER",
+    "MOSE2",
     "MOSE2_WSE2_H_INTERFACE",
-    "BUNDLED_INTERFACES",
-    "MoireMesh",
-    "generate_finite_mesh",
-    "generate_custom_mesh",
-    "generate_hex_periodic_mesh",
-    "identify_hex_periodic_boundary",
+    "WSE2",
+    "GSFESurface",
+    "HexagonalLattice",
+    "InteractivePinner",
+    "Interface",
+    "Material",
     "MeanDisplacementConstraint",
-    "RotationConstraint",
+    "MoireGeometry",
+    "MoireMesh",
     "PeriodicPairConstraint",
     "PinningMap",
-    "InteractivePinner",
     "RelaxationSolver",
+    "RotationConstraint",
     "SolverConfig",
+    "generate_custom_mesh",
+    "generate_finite_mesh",
+    "generate_hex_periodic_mesh",
+    "identify_hex_periodic_boundary",
 ]

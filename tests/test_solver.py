@@ -17,8 +17,8 @@ class TestPseudoDynamics:
     def test_matches_newton_on_small_bilayer(self):
         """pseudo_dynamics and newton should agree on energy for a small bilayer."""
         # Small mesh + moderate twist so both solvers run in <5s.
-        common = dict(pixel_size=1.5, max_iter=80, gtol=1e-3,
-                      display=False, min_mesh_points=30)
+        common = {"pixel_size": 1.5, "max_iter": 80, "gtol": 1e-3,
+                      "display": False, "min_mesh_points": 30}
 
         cfg_newton = SolverConfig(method="newton", **common)
         res_newton = RelaxationSolver(cfg_newton).solve(
@@ -51,8 +51,8 @@ class TestPseudoDynamics:
         trust-region Newton-CG (unmodified Hessian) should converge to
         the same relaxed state, despite using different inner step rules.
         """
-        common = dict(pixel_size=1.5, max_iter=80, gtol=1e-3,
-                      display=False, min_mesh_points=30)
+        common = {"pixel_size": 1.5, "max_iter": 80, "gtol": 1e-3,
+                      "display": False, "min_mesh_points": 30}
 
         cfg_newton = SolverConfig(method="newton", **common)
         res_newton = RelaxationSolver(cfg_newton).solve(
@@ -86,8 +86,8 @@ class TestPseudoDynamics:
         Hessian and calls spsolve. Both should converge to the same
         relaxed energy on a small test case.
         """
-        common = dict(method="pseudo_dynamics", pixel_size=1.5, max_iter=80,
-                      gtol=1e-3, display=False, min_mesh_points=30)
+        common = {"method": "pseudo_dynamics", "pixel_size": 1.5, "max_iter": 80,
+                      "gtol": 1e-3, "display": False, "min_mesh_points": 30}
 
         cfg_direct = SolverConfig(linear_solver="direct", **common)
         res_direct = RelaxationSolver(cfg_direct).solve(
@@ -284,7 +284,7 @@ class TestEnergyGradient:
         np.random.seed(42)
         U = np.random.randn(conv.n_sol) * 0.001
 
-        E, grad = energy(U)
+        _E, grad = energy(U)
 
         # Finite difference check on a subset of DOFs
         h = 1e-6
@@ -310,8 +310,8 @@ class TestEnergyGradient:
 class TestConvergenceCriteria:
     """Verify the convergence reporting for each solver method."""
 
-    _common = dict(pixel_size=1.5, max_iter=80, display=False,
-                   min_mesh_points=30)
+    _common = {"pixel_size": 1.5, "max_iter": 80, "display": False,  # noqa: RUF012
+                   "min_mesh_points": 30}
 
     def test_newton_reports_success(self):
         cfg = SolverConfig(method="newton", gtol=1e-3, rtol=1e-2,
