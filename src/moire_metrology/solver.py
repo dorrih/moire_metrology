@@ -15,6 +15,7 @@ Typical usage::
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from time import perf_counter
 from typing import TYPE_CHECKING
@@ -31,6 +32,44 @@ from .interfaces import Interface
 from .lattice import HexagonalLattice, MoireGeometry
 from .mesh import MoireMesh
 from .result import RelaxationResult
+
+
+def _maybe_checkpoint(state: dict, *, phase: str) -> None:
+    """Save state["best_x"] atomically every N solver iters, if opt-in via env.
+
+    Enable with env var CKPT_PATH=<path/to/ckpt.npz>; save cadence via CKPT_EVERY
+    (default 500 iters). Uses tmp+rename for atomicity so a SIGKILL/reboot mid-save
+    can't leave a truncated file. On natural solve completion the caller may delete
+    the ckpt file (relax.npz is authoritative). To warm-restart after a kill, rename
+    the ckpt to a `<stem>_relax.npz` and pass its stem to --ic-from (finite_flake_disk).
+    """
+    path = os.environ.get("CKPT_PATH")
+    if not path:
+        return
+    try:
+        every = int(os.environ.get("CKPT_EVERY", "500"))
+    except ValueError:
+        every = 500
+    if state["nit"] < 1 or state["nit"] % every != 0:
+        return
+    try:
+        tmp = f"{path}.tmp"
+        # Pass a file handle so np.savez doesn't auto-append ".npz" to our
+        # explicit ".tmp" path (it does that for string args). Rename is atomic.
+        with open(tmp, "wb") as fh:
+            np.savez(fh,
+                     solution_vector=state["best_x"],
+                     E_total=float(state["best_E"]),
+                     nit=int(state["nit"]),
+                     phase=str(phase))
+        os.replace(tmp, path)  # atomic on POSIX
+    except Exception as e:  # noqa: BLE001
+        # Never crash the solve for a checkpoint hiccup — just log to stderr.
+        try:
+            import sys
+            print(f"  [checkpoint save failed: {e}]", file=sys.stderr, flush=True)
+        except Exception:  # noqa: BLE001, S110
+            pass
 
 if TYPE_CHECKING:
     from .discretization import PinnedConstraints
@@ -521,6 +560,10 @@ def _trust_ncg_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
             state["best_x"] = x_proj.copy()
             state["best_E"] = E_now
             state["best_grad"] = g_proj.copy()
+        # Periodic checkpoint (opt-in via env; atomic write via tmp+rename so
+        # a kill mid-save can't leave a corrupt file). Saves best_x so a
+        # warm-restart from this state matches the "converged so far" answer.
+        _maybe_checkpoint(state, phase="polish_tncg")
         # Energy stagnation
         if len(state["recent_E"]) >= etol_window + 1:
             window = state["recent_E"][-(etol_window + 1):]
@@ -669,6 +712,28 @@ def _lbfgs_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
     E0_val, grad0 = energy_func(U0)
     gnorm0 = max(float(np.linalg.norm(project(grad0))), 1.0)
 
+    # scipy L-BFGS-B stores its correction history in a Fortran work array of
+    # size (2*maxcor+5)*n that is indexed with int32; for large n this product
+    # overflows 2**31 and the Fortran writes past the array -> SIGSEGV. Observed
+    # at n=23.4M free DOFs with maxcor=50: 105*n = 2.46e9 > 2.147e9. Cap maxcor
+    # (with a margin below the int32 limit) so the work array stays in range.
+    # Discovery only needs L-BFGS for basin finding; a shorter history is fine and
+    # trust-ncg polish does the precise convergence, so the minimum is unchanged.
+    n = int(U0.size)
+    _wa_limit = int(0.9 * (2**31 - 1))
+    _m_safe = (_wa_limit // n - 5) // 2
+    if _m_safe < maxcor:
+        if _m_safe < 3:
+            raise ValueError(
+                f"L-BFGS-B discovery: n={n} free DOFs exceeds scipy's int32 "
+                f"work-array capacity even at maxcor=3 (needs n < ~3.2e8). Use a "
+                f"coarser mesh or a different discovery method for a problem this large."
+            )
+        if display:
+            print(f"  [lbfgs] capping maxcor {maxcor} -> {_m_safe} to keep the "
+                  f"scipy int32 work array (2m+5)*n < 2^31 at n={n}", flush=True)
+        maxcor = _m_safe
+
     def fun_jac(U: np.ndarray) -> tuple[float, np.ndarray]:
         Up = project(U)
         E, g = energy_func(Up)
@@ -695,6 +760,8 @@ def _lbfgs_solve(energy_func: RelaxationEnergy, U0: np.ndarray,
             state["best_x"] = x_proj.copy()
             state["best_E"] = E_now
             state["best_grad"] = g_proj.copy()
+        # Periodic checkpoint (opt-in via env, see _maybe_checkpoint docstring).
+        _maybe_checkpoint(state, phase="discovery_lbfgs")
         if len(state["recent_E"]) >= etol_window + 1:
             window = state["recent_E"][-(etol_window + 1):]
             de = (window[0] - window[-1]) / max(abs(window[-1]), 1.0)

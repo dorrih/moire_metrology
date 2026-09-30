@@ -501,10 +501,54 @@ class RelaxationEnergy:
             return self._H_elastic + H_gsfe
         return self._gl.hessian_sparse(U_full) + H_gsfe
 
-    def energy_maps(self, U: np.ndarray) -> dict:
-        """Compute spatially resolved energy density maps."""
-        Nv = self.Nv
+    def _elastic_density_cauchy(
+        self, ux_k: np.ndarray, uy_k: np.ndarray, K: float, G: float,
+    ) -> np.ndarray:
+        """Per-triangle Cauchy (linearized) elastic energy density."""
         Dx, Dy = self._Dx, self._Dy
+        exx = Dx @ ux_k
+        exy = Dy @ ux_k
+        eyx = Dx @ uy_k
+        eyy = Dy @ uy_k
+        trace = exx + eyy
+        return 0.5 * K * trace**2 + 0.5 * G * ((exx - eyy)**2 + (exy + eyx)**2)
+
+    def _elastic_density_gl(
+        self, ux_k: np.ndarray, uy_k: np.ndarray, K: float, G: float,
+    ) -> np.ndarray:
+        """Per-triangle Green-Lagrange (SVK) elastic energy density.
+
+        Uses the same shape gradient arrays as the GL assembler.
+        """
+        gl = self._gl
+        tris = gl.tris
+        bx, by = gl.bx, gl.by
+        lam, mu = K - G, G
+
+        ux_t = ux_k[tris]  # (Nt, 3)
+        uy_t = uy_k[tris]
+        uxx = np.einsum("kj,kj->k", bx, ux_t)
+        uxy = np.einsum("kj,kj->k", by, ux_t)
+        uyx = np.einsum("kj,kj->k", bx, uy_t)
+        uyy = np.einsum("kj,kj->k", by, uy_t)
+
+        F11 = 1.0 + uxx
+        F12 = uxy
+        F21 = uyx
+        F22 = 1.0 + uyy
+        E11 = 0.5 * (F11 * F11 + F21 * F21 - 1.0)
+        E22 = 0.5 * (F12 * F12 + F22 * F22 - 1.0)
+        E12 = 0.5 * (F11 * F12 + F21 * F22)
+        trE = E11 + E22
+        return 0.5 * lam * trE * trE + mu * (E11 * E11 + E22 * E22 + 2.0 * E12 * E12)
+
+    def energy_maps(self, U: np.ndarray) -> dict:
+        """Compute spatially resolved energy density maps.
+
+        The elastic energy density uses the same strain model (Cauchy or
+        Green-Lagrange) that the solver was configured with.
+        """
+        Nv = self.Nv
         Suc = self.geometry.lattice.unit_cell_area
 
         # GSFE maps for all pairs
@@ -515,7 +559,7 @@ class RelaxationEnergy:
             V_min = pair.gsfe.minimum_value
             gsfe_maps.append((V - V_min) / Suc)
 
-        # Elastic energy per layer
+        # Elastic energy per layer — dispatch on strain model
         t2v = self.disc.triangle_to_vertex
         elastic_maps = {}
         for stack_idx, label in enumerate(["elastic_1", "elastic_2"]):
@@ -529,12 +573,10 @@ class RelaxationEnergy:
             for k in range(nlayer):
                 ux_k = conv_x[k * Nv : (k + 1) * Nv] @ U
                 uy_k = conv_y[k * Nv : (k + 1) * Nv] @ U
-                exx = Dx @ ux_k
-                exy = Dy @ ux_k
-                eyx = Dx @ uy_k
-                eyy = Dy @ uy_k
-                trace = exx + eyy
-                e_el = 0.5 * K * trace**2 + 0.5 * G * ((exx - eyy)**2 + (exy + eyx)**2)
+                if self.elastic_strain == "green_lagrange":
+                    e_el = self._elastic_density_gl(ux_k, uy_k, K, G)
+                else:
+                    e_el = self._elastic_density_cauchy(ux_k, uy_k, K, G)
                 maps_k[k] = (t2v @ e_el) / Suc
             elastic_maps[label] = maps_k
 
